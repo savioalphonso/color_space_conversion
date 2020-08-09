@@ -1,7 +1,12 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <tiffio.h>
 #include <string.h>
+#include <sys/sysinfo.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <sched.h>
 
 #ifdef DEBUG
 #define DEBUG_PRINT(fmt, args...)    fprintf(stderr, fmt, args)
@@ -12,12 +17,20 @@
 #define Y(var, i, offset, position) var[i*offset]
 #define Cb(var, i, offset, position) var[i*offset+position]
 #define Cr(var, i, offset, position) var[i*offset+position]
+#define CACHELINE_SZ 64
 
 typedef struct {
     uint32 width;
     uint32 height;
     uint32* image;
 }image_t;
+
+volatile int completed[3]={0,0,0};
+
+struct data{
+    int id;
+    uint8* segment;
+};
 
 image_t* read_tiff_image(char* filename){
     printf("[+] Opening \033[1;36m%s\033[0m\n", filename);
@@ -86,7 +99,7 @@ void write_tiff_image(uint8 *image, char* filename, int width, int height) {
     for (int row = 0; row < height; ++row) {
         memcpy(buffer, &image[row * width * n_samples], width * n_samples);
         if (TIFFWriteScanline(tiff_output, buffer, row, 0) < 0){
-            printf("[-] \033[0;31mWriting data failed!%s\033[0m\n");
+            printf("[-] \033[0;31mWriting data failed!\033[0m\n");
             exit(EXIT_FAILURE);
         }
     }
@@ -119,9 +132,106 @@ uint8 *convert_rgb_to_ycbcr(uint32 *raster, uint32 width, uint32 height) {
     return ycbcr;
 }
 
-
 void *downsample(uint8 *raster, uint32 width, uint32 height){
 }
+
+
+void *convert_rgb_to_ycc(void *ptr){
+
+    struct data* data = (struct data*) ptr;
+    for (int i = 0; i < 64; ++i) {
+        printf("[Thread %d] Got Values %02x\n", data->id, data->segment[i]);
+    }
+
+    completed[data->id]=1;
+
+}
+
+
+void cache_worker(uint8* raster, uint32 max_size){
+     int num_processors = get_nprocs();
+     printf("[+] Detected \033[1;36m%d\033[0m Processors. Creating Threads\n", num_processors);
+
+     pthread_t workers[3];
+    pthread_attr_t attr;
+    cpu_set_t cpus;
+    pthread_attr_init(&attr);
+
+     int values = 0;
+
+
+            struct data w1;
+            w1.id = 0;
+            w1.segment = (raster + values);
+
+            CPU_ZERO(&cpus);
+            CPU_SET(1, &cpus);
+            pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
+            pthread_create(&workers[0], &attr, convert_rgb_to_ycc, (void*) &w1);
+            values += 64;
+
+            struct data w2;
+            w2.id = 1;
+            w2.segment = (raster + values);
+            CPU_ZERO(&cpus);
+            CPU_SET(2, &cpus);
+            pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
+            pthread_create(&workers[1], NULL, convert_rgb_to_ycc, (void*) &w2);
+            values += 64;
+
+            struct data w3;
+            w3.id = 2;
+            w3.segment = (raster + values);
+            CPU_ZERO(&cpus);
+            CPU_SET(3, &cpus);
+            pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
+            pthread_create(&workers[2], NULL, convert_rgb_to_ycc, (void*) &w3);
+            values += 64;
+
+        while (values < max_size*3) {
+
+            struct data data;
+
+            if (completed[0]) {
+                completed[0] = 0;
+                w1.segment = (raster + values);
+                CPU_ZERO(&cpus);
+                CPU_SET(1, &cpus);
+                pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
+                pthread_create(&workers[0], NULL, convert_rgb_to_ycc, (void *) &w1);
+                values += 64;
+            }
+
+            if (completed[1]) {
+                completed[1] = 0;
+                w2.segment = (raster + values);
+                CPU_ZERO(&cpus);
+                CPU_SET(2, &cpus);
+                pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
+                pthread_create(&workers[1], NULL, convert_rgb_to_ycc, (void *) &w2);
+                values += 64;
+            }
+
+            if (completed[2]) {
+                completed[2] = 0;
+                w3.segment = (raster + values);
+                CPU_ZERO(&cpus);
+                CPU_SET(3, &cpus);
+                pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
+                pthread_create(&workers[2], NULL, convert_rgb_to_ycc, (void *) &w3);
+                values += 64;
+            }
+
+
+        }
+
+
+    printf("[+] processed %d values", values);
+
+    
+}
+
+
 
 int main(int argc, char* argv[]) {
 
@@ -131,10 +241,11 @@ int main(int argc, char* argv[]) {
     }
 
     image_t* rgb_image = read_tiff_image(argv[1]);
-    uint8* ycc_image = convert_rgb_to_ycbcr(rgb_image->image, rgb_image->width, rgb_image->height);
+    cache_worker((uint8*) rgb_image->image, 640*480);
+//    uint8* ycc_image = convert_rgb_to_ycbcr(rgb_image->image, rgb_image->width, rgb_image->height);
     free(rgb_image->image);
-    downsample(ycc_image, rgb_image->width, rgb_image->height);
-    write_tiff_image(ycc_image, argv[2], rgb_image->width, rgb_image->height);
+//    downsample(ycc_image, rgb_image->width, rgb_image->height);
+//    write_tiff_image(ycc_image, argv[2], rgb_image->width, rgb_image->height);
 
     return 0;
 }
