@@ -7,6 +7,8 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <sched.h>
+#include <sys/time.h>
+#include <arm_neon.h>
 
 #ifdef DEBUG
 #define DEBUG_PRINT(fmt, args...)    fprintf(stderr, fmt, args)
@@ -19,42 +21,31 @@
 #define Cr(var, i, offset, position) var[i*offset+position]
 #define CACHELINE_SZ 64
 
-typedef struct {
-    uint32 width;
-    uint32 height;
-    uint32* image;
-}image_t;
-
-volatile int completed[3]={0,0,0};
-
-struct data{
-    int id;
-    uint8* segment;
-};
-
-image_t* read_tiff_image(char* filename){
+//
+//volatile int completed[3]={0,0,0};
+//
+//struct data{
+//    int id;
+//    uint8* segment;
+//};
+//
+uint32 * read_tiff_image(char* filename){
     printf("[+] Opening \033[1;36m%s\033[0m\n", filename);
     TIFF* tiff_image = TIFFOpen(filename, "r");
     if (!tiff_image) {
         printf("[-] \033[0;31mCould not open %s for conversion\033[0m", filename);
         exit(EXIT_FAILURE);
     }
-    image_t* image_data = (image_t *) malloc(sizeof(image_t));
-    size_t n_pixels;
-
-    TIFFGetField(tiff_image, TIFFTAG_IMAGEWIDTH, &image_data->width);
-    TIFFGetField(tiff_image, TIFFTAG_IMAGELENGTH, &image_data->height);
-    n_pixels = image_data->width * image_data->height;
-    printf("[+] Image Size is \033[1;36m%dx%d\033[0m\n", image_data->width, image_data->height);
+    size_t n_pixels = 640 * 480;
+    uint32* image_data = (uint32*) malloc(n_pixels * sizeof(uint32));
 
 
-    image_data->image = (uint32*) _TIFFmalloc(n_pixels * sizeof(uint32));
-    if (image_data->image == NULL){
+    if (image_data == NULL){
         printf("[-] \033[0;31mCould not allocate memory to store image file\033[0m\n");
         exit(EXIT_FAILURE);
     }
     printf("[o] Reading Image\n");
-    TIFFReadRGBAImage(tiff_image, image_data->width, image_data->height, image_data->image, 0);
+    TIFFReadRGBAImageOriented(tiff_image, 640, 480, image_data,	ORIENTATION_TOPLEFT, 0);
     TIFFClose(tiff_image);
 
     printf("[+] \033[1;32mSuccessfully read image to memory\033[0m\n");
@@ -64,8 +55,12 @@ image_t* read_tiff_image(char* filename){
 }
 
 void write_tiff_image(uint8 *image, char* filename, int width, int height) {
-    printf("[+] Creating output file \033[1;36m%s\033[0m\n", filename);
-    TIFF* tiff_output = TIFFOpen(filename, "w");
+   // printf("[+] Creating output file \033[1;36m%s\033[0m\n", filename);
+    char* f = calloc(100, sizeof(char));
+    char* ext = ".tiff";
+    strcat(f, filename);
+    strcat(f, ext);
+    TIFF* tiff_output = TIFFOpen(f, "w");
     int chroma_values = 2;
     int n_samples = 3;
     int YCbCr_subsampling[2] = {1, 1};
@@ -75,7 +70,7 @@ void write_tiff_image(uint8 *image, char* filename, int width, int height) {
         exit(EXIT_FAILURE);
     }
 
-    printf("[o] Setting TIFF Tags\n");
+    //printf("[o] Setting TIFF Tags\n");
     TIFFSetField(tiff_output, TIFFTAG_IMAGEWIDTH, width);
     TIFFSetField(tiff_output, TIFFTAG_IMAGELENGTH, height);
     TIFFSetField(tiff_output, TIFFTAG_SAMPLESPERPIXEL, n_samples);
@@ -86,7 +81,7 @@ void write_tiff_image(uint8 *image, char* filename, int width, int height) {
     TIFFSetField(tiff_output, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_YCBCR);
     TIFFSetField(tiff_output, TIFFTAG_YCBCRSUBSAMPLING, YCbCr_subsampling[0], YCbCr_subsampling[1]);
     TIFFSetField(tiff_output, TIFFTAG_YCBCRPOSITIONING, YCBCRPOSITION_COSITED);
-    printf("[+] \033[1;32mSuccessfully Set TIFF Tags\033[0m\n");
+    //printf("[+] \033[1;32mSuccessfully Set TIFF Tags\033[0m\n");
 
 
 
@@ -95,7 +90,7 @@ void write_tiff_image(uint8 *image, char* filename, int width, int height) {
 
 
 
-    printf("[o] Writing TIFF Image\n");
+    //printf("[o] Writing TIFF Image\n");
     for (int row = 0; row < height; ++row) {
         memcpy(buffer, &image[row * width * n_samples], width * n_samples);
         if (TIFFWriteScanline(tiff_output, buffer, row, 0) < 0){
@@ -104,18 +99,20 @@ void write_tiff_image(uint8 *image, char* filename, int width, int height) {
         }
     }
 
-    printf("[+] \033[1;32mSuccessfully Wrote TIFF Image\033[0m\n");
+    //printf("[+] \033[1;32mSuccessfully Wrote TIFF Image\033[0m\n");
     free(buffer);
     TIFFClose(tiff_output);
 }
-
-
-uint8 *convert_rgb_to_ycbcr(uint32 *raster, uint32 width, uint32 height) {
+//
+//
+uint8 *convert_rgb_to_ycbcr(uint32 *raster) {
 
     /**
      * The image is currently stored as ARGB,ARGB,ARGB format we can take the first element
      * shift it by 8 to get B, by 16 to get G and 32 to get R
      */
+    uint32 width = 640;
+    uint32 height = 480;
     printf("[o] Converting RGB to YCbCr");
     uint8* ycbcr = malloc(width * height * 3);
     for (int pixel = 0; pixel < width * height; ++pixel) {
@@ -132,106 +129,73 @@ uint8 *convert_rgb_to_ycbcr(uint32 *raster, uint32 width, uint32 height) {
     return ycbcr;
 }
 
-void *downsample(uint8 *raster, uint32 width, uint32 height){
-}
 
 
-void *convert_rgb_to_ycc(void *ptr){
 
-    struct data* data = (struct data*) ptr;
-    for (int i = 0; i < 64; ++i) {
-        printf("[Thread %d] Got Values %02x\n", data->id, data->segment[i]);
+uint8* convert_rgb_to_ycbcr_v1(const uint32 *raster){
+
+    uint32 num_pixels = 640 * 480;
+    uint8* ycbcr = malloc(num_pixels*3);
+
+    for (int i = 0; i < num_pixels; ++i) {
+        Y(ycbcr, i, 3,  0)= 16 + ((65 * TIFFGetR(raster[i])) + (128 * TIFFGetG(raster[i])) + (25 * TIFFGetB(raster[i])) >> 8);
+        Cb(ycbcr, i, 3, 1)  = 128 + ((-38 * TIFFGetR(raster[i])) - (74 * TIFFGetG(raster[i])) + (112 * TIFFGetB(raster[i]))  >> 8);
+        Cr(ycbcr, i, 3, 2)  = 128 + ((112 * TIFFGetR(raster[i])) - (94 * TIFFGetG(raster[i])) - (18 * TIFFGetB(raster[i])) >> 8);
     }
 
-    completed[data->id]=1;
+    return ycbcr;
+}
+
+ uint8* convert_rgb_to_ycbcr_v2(const uint32 *raster){
+
+    uint32 num_pixels = 640 * 480;
+    register uint16 tempY, tempCb, tempCr;
+    register uint8 r = TIFFGetR(raster[0]);
+    register uint8 g = TIFFGetG(raster[0]);
+    register uint8 b = TIFFGetB(raster[0]);
+
+    tempY = 16 + ((65 * r) + (128 * g) + (25 * b) >> 8);
+    tempCb = 128 + ((-37 * r) - (74 * g) + (112 * b) >> 8);
+    tempCr = 128 + ((112 * r) - (94 * g) - (18 * b) >> 8);
+
+    uint8* ycbcr = malloc(num_pixels * 3);
+    for (register uint32 pixel = 1; pixel < num_pixels; pixel++) {
+
+        Y(ycbcr, pixel, 3,  0) = tempY;
+        Cb(ycbcr, pixel, 3, 1) = tempCb;
+        Cr(ycbcr, pixel, 3, 2) = tempCr;
+
+        r = TIFFGetR(raster[pixel]);
+        g = TIFFGetG(raster[pixel]);
+        b = TIFFGetB(raster[pixel]);
+
+        tempY = 16 + ((65 * r) + (128 * g) + (25 * b) >> 8);
+        tempCb = 128 + ((-37 * r) - (74 * g) + (112 * b) >> 8);
+        tempCr = 128 + ((112 * r) - (94 * g) - (18 * b) >> 8);
+    }
+
+    Y(ycbcr, num_pixels, 3,  0) = tempY;
+    Cb(ycbcr, num_pixels, 3, 1) = tempCb;
+    Cr(ycbcr, num_pixels, 3, 2) = tempCr;
+
+    return ycbcr;
+}
+
+uint8* convert_rgb_to_ycbcr_v3(const uint32 *raster){
+    uint8x16x4_t abgr = vld4q_u8(raster);
 
 }
 
+void measure(uint8*(convert)(const uint32*), uint32* image, char* tag){
+    struct timeval stop, start;
+    gettimeofday(&start, NULL);
+    uint8* ycbcr = convert(image);
+    gettimeofday(&stop, NULL);
+    uint64 delta = (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec;
+    printf("\033[1;36m[%s]\033[0m RGB TO YCbCr Conversion took \033[1;36m%lu\033[0m microseconds\n", tag, delta);
+    write_tiff_image(ycbcr, tag, 640, 480);
 
-void cache_worker(uint8* raster, uint32 max_size){
-     int num_processors = get_nprocs();
-     printf("[+] Detected \033[1;36m%d\033[0m Processors. Creating Threads\n", num_processors);
-
-     pthread_t workers[3];
-    pthread_attr_t attr;
-    cpu_set_t cpus;
-    pthread_attr_init(&attr);
-
-     int values = 0;
-
-
-            struct data w1;
-            w1.id = 0;
-            w1.segment = (raster + values);
-
-            CPU_ZERO(&cpus);
-            CPU_SET(1, &cpus);
-            pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
-            pthread_create(&workers[0], &attr, convert_rgb_to_ycc, (void*) &w1);
-            values += 64;
-
-            struct data w2;
-            w2.id = 1;
-            w2.segment = (raster + values);
-            CPU_ZERO(&cpus);
-            CPU_SET(2, &cpus);
-            pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
-            pthread_create(&workers[1], NULL, convert_rgb_to_ycc, (void*) &w2);
-            values += 64;
-
-            struct data w3;
-            w3.id = 2;
-            w3.segment = (raster + values);
-            CPU_ZERO(&cpus);
-            CPU_SET(3, &cpus);
-            pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
-            pthread_create(&workers[2], NULL, convert_rgb_to_ycc, (void*) &w3);
-            values += 64;
-
-        while (values < max_size*3) {
-
-            struct data data;
-
-            if (completed[0]) {
-                completed[0] = 0;
-                w1.segment = (raster + values);
-                CPU_ZERO(&cpus);
-                CPU_SET(1, &cpus);
-                pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
-                pthread_create(&workers[0], NULL, convert_rgb_to_ycc, (void *) &w1);
-                values += 64;
-            }
-
-            if (completed[1]) {
-                completed[1] = 0;
-                w2.segment = (raster + values);
-                CPU_ZERO(&cpus);
-                CPU_SET(2, &cpus);
-                pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
-                pthread_create(&workers[1], NULL, convert_rgb_to_ycc, (void *) &w2);
-                values += 64;
-            }
-
-            if (completed[2]) {
-                completed[2] = 0;
-                w3.segment = (raster + values);
-                CPU_ZERO(&cpus);
-                CPU_SET(3, &cpus);
-                pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
-                pthread_create(&workers[2], NULL, convert_rgb_to_ycc, (void *) &w3);
-                values += 64;
-            }
-
-
-        }
-
-
-    printf("[+] processed %d values", values);
-
-    
 }
-
-
 
 int main(int argc, char* argv[]) {
 
@@ -240,12 +204,16 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    image_t* rgb_image = read_tiff_image(argv[1]);
-    cache_worker((uint8*) rgb_image->image, 640*480);
-//    uint8* ycc_image = convert_rgb_to_ycbcr(rgb_image->image, rgb_image->width, rgb_image->height);
-    free(rgb_image->image);
-//    downsample(ycc_image, rgb_image->width, rgb_image->height);
-//    write_tiff_image(ycc_image, argv[2], rgb_image->width, rgb_image->height);
+    uint32* rgb_image = read_tiff_image(argv[1]);
+    measure(convert_rgb_to_ycbcr, rgb_image, "Unoptimized");
+    measure(convert_rgb_to_ycbcr_v1, rgb_image, "Fixed-Point Arithmetic");
+    measure(convert_rgb_to_ycbcr_v2, rgb_image, "Fixed-Point Arithmetic with Software Pipelining");
+
+//    cache_worker((uint8*) rgb_image->image, 640*480);
+////    uint8* ycc_image = convert_rgb_to_ycbcr(rgb_image->image, rgb_image->width, rgb_image->height);
+//    free(rgb_image->image);
+////    downsample(ycc_image, rgb_image->width, rgb_image->height);
+////    write_tiff_image(ycc_image, argv[2], rgb_image->width, rgb_image->height);
 
     return 0;
 }
