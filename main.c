@@ -169,9 +169,9 @@ uint8* convert_rgb_to_ycbcr_v1(const uint32 *raster){
         g = TIFFGetG(raster[pixel]);
         b = TIFFGetB(raster[pixel]);
 
-        tempY = 16 + ((65 * r) + (128 * g) + (25 * b) >> 8);
-        tempCb = 128 + ((-37 * r) - (74 * g) + (112 * b) >> 8);
-        tempCr = 128 + ((112 * r) - (94 * g) - (18 * b) >> 8);
+        tempY = 16 + (((65 * r) + (128 * g) + (25 * b)) >> 8);
+        tempCb = 128 + (((-37 * r) - (74 * g) + (112 * b)) >> 8);
+        tempCr = 128 + (((112 * r) - (94 * g) - (18 * b)) >> 8);
     }
 
     Y(ycbcr, num_pixels, 3,  0) = tempY;
@@ -180,9 +180,58 @@ uint8* convert_rgb_to_ycbcr_v1(const uint32 *raster){
 
     return ycbcr;
 }
+void print8x16(uint16x8_t r){
 
+    static uint16_t p[8];
+    vst1q_u16(p, r);
+
+
+    for (int i = 0; i < 8; ++i) {
+        printf("%d ", p[i]);
+    }
+    printf("\n");
+}
 uint8* convert_rgb_to_ycbcr_v3(const uint32 *raster){
-    uint8x16x4_t abgr = vld4q_u8(raster);
+
+    uint32 num_pixels = 640 * 480;
+    uint8* ycbcr = malloc(num_pixels * 3);
+    int y_idx = 0;
+
+    for (int i = 0; i < 76800; ++i) {
+        uint8x16x4_t bgra = vld4q_u8(raster);
+        uint16x8x2_t y_16;
+        uint8x8_t scalar = vdup_n_u8(65);
+        uint8x8x2_t r;
+        uint8x8x2_t g;
+        uint8x8x2_t b;
+        r.val[0] = vget_low_u8(bgra.val[0]);
+        r.val[1] = vget_high_u8(bgra.val[0])
+        g.val[0] = vget_low_u8(bgra.val[1]);
+        g.val[1] = vget_high_u8(bgra.val[1]);
+        b.val[0] = vget_low_u8(bgra.val[2]);
+        b.val[1] = vget_high_u8(bgra.val[2]);
+
+        y_16.val[0] = vmull_u8(r.val[0], scalar);
+        y_16.val[1] = vmull_u8(r.val[1], scalar);
+        scalar = vdup_n_u8(129);
+        y_16.val[0] = vmlal_u8(y_16.val[0], r.val[0], scalar);
+        y_16.val[1] = vmlal_u8(y_16.val[1], r.val[1], scalar);
+        scalar = vdup_n_u8(25);
+        y_16.val[0] = vmlal_u8(y_16.val[0], r.val[0], scalar);
+        y_16.val[1] = vmlal_u8(y_16.val[1], r.val[1], scalar);
+
+
+        const uint8x16_t offset = vdupq_n_u8(16);
+        uint8x16_t y = vaddq_u8(vcombine_u8(vqshrn_n_u16(y_16.val[0], 8), vqshrn_n_u16(y_16.val[1], 8)), offset);
+        vst1q_u8(ycbcr + y_idx, y);
+    }
+
+
+    //    scalar = vdup_n_u8(128);
+//    y = vshlq_n_u8(vmlal_high_u8(y, abgr.val[1], scalar), 8);
+//    scalar = vdup_n_u8(25);
+//    y = vshlq_n_u8(vmlal_high_u8(y, abgr.val[0], scalar), 8);
+
 
 }
 
@@ -208,6 +257,7 @@ int main(int argc, char* argv[]) {
     measure(convert_rgb_to_ycbcr, rgb_image, "Unoptimized");
     measure(convert_rgb_to_ycbcr_v1, rgb_image, "Fixed-Point Arithmetic");
     measure(convert_rgb_to_ycbcr_v2, rgb_image, "Fixed-Point Arithmetic with Software Pipelining");
+    measure(convert_rgb_to_ycbcr_v3, rgb_image, "SIMD");
 
 //    cache_worker((uint8*) rgb_image->image, 640*480);
 ////    uint8* ycc_image = convert_rgb_to_ycbcr(rgb_image->image, rgb_image->width, rgb_image->height);
