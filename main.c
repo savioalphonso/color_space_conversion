@@ -192,20 +192,21 @@ void print8x16(uint16x8_t r){
     printf("\n");
 }
 uint8* convert_rgb_to_ycbcr_v3(const uint32 *raster){
-
+    uint8* raster_8 = (uint8 *) raster;
     uint32 num_pixels = 640 * 480;
-    uint8* ycbcr = malloc(num_pixels * 3);
+    uint8* ycbcr = calloc(num_pixels * 3, 1);
     int y_idx = 0;
 
-    for (int i = 0; i < 76800; ++i) {
-        uint8x16x4_t bgra = vld4q_u8(raster);
+    for (int i = 0; i < 19201; ++i) {
+        uint8x16x4_t bgra = vld4q_u8(raster_8);
+        raster_8 += 64;
         uint16x8x2_t y_16;
         uint8x8_t scalar = vdup_n_u8(65);
         uint8x8x2_t r;
         uint8x8x2_t g;
         uint8x8x2_t b;
         r.val[0] = vget_low_u8(bgra.val[0]);
-        r.val[1] = vget_high_u8(bgra.val[0])
+        r.val[1] = vget_high_u8(bgra.val[0]);
         g.val[0] = vget_low_u8(bgra.val[1]);
         g.val[1] = vget_high_u8(bgra.val[1]);
         b.val[0] = vget_low_u8(bgra.val[2]);
@@ -214,24 +215,24 @@ uint8* convert_rgb_to_ycbcr_v3(const uint32 *raster){
         y_16.val[0] = vmull_u8(r.val[0], scalar);
         y_16.val[1] = vmull_u8(r.val[1], scalar);
         scalar = vdup_n_u8(129);
-        y_16.val[0] = vmlal_u8(y_16.val[0], r.val[0], scalar);
-        y_16.val[1] = vmlal_u8(y_16.val[1], r.val[1], scalar);
+        y_16.val[0] = vmlal_u8(y_16.val[0], g.val[0], scalar);
+        y_16.val[1] = vmlal_u8(y_16.val[1], g.val[1], scalar);
         scalar = vdup_n_u8(25);
-        y_16.val[0] = vmlal_u8(y_16.val[0], r.val[0], scalar);
-        y_16.val[1] = vmlal_u8(y_16.val[1], r.val[1], scalar);
+        y_16.val[0] = vmlal_u8(y_16.val[0], b.val[0], scalar);
+        y_16.val[1] = vmlal_u8(y_16.val[1], b.val[1], scalar);
 
 
         const uint8x16_t offset = vdupq_n_u8(16);
         uint8x16_t y = vaddq_u8(vcombine_u8(vqshrn_n_u16(y_16.val[0], 8), vqshrn_n_u16(y_16.val[1], 8)), offset);
         vst1q_u8(ycbcr + y_idx, y);
+        y_idx += 16;
     }
 
-
+    return ycbcr;
     //    scalar = vdup_n_u8(128);
 //    y = vshlq_n_u8(vmlal_high_u8(y, abgr.val[1], scalar), 8);
 //    scalar = vdup_n_u8(25);
 //    y = vshlq_n_u8(vmlal_high_u8(y, abgr.val[0], scalar), 8);
-
 
 }
 
