@@ -104,25 +104,85 @@ void write_tiff_image(uint8 *image, char* filename, int width, int height) {
     free(buffer);
     TIFFClose(tiff_output);
 }
-
+//
+//void write_downsampled_tiff_image(uint8 *image, char* filename, int width, int height) {
+//    // printf("[+] Creating output file \033[1;36m%s\033[0m\n", filename);
+//    char* f = calloc(100, sizeof(char));
+//    char* ext = ".tiff";
+//    strcat(f, filename);
+//    strcat(f, ext);
+//    TIFF* tiff_output = TIFFOpen(f, "w");
+//    int chroma_values = 2;
+//    int n_samples = 3;
+//    int YCbCr_subsampling[2] = {1, 1};
+//
+//    if (!tiff_output){
+//        printf("[-] \033[0;31mCould not create %s\033[0m\n", filename);
+//        exit(EXIT_FAILURE);
+//    }
+//
+//    //printf("[o] Setting TIFF Tags\n");
+//    TIFFSetField(tiff_output, TIFFTAG_IMAGEWIDTH, width);
+//    TIFFSetField(tiff_output, TIFFTAG_IMAGELENGTH, height);
+//    TIFFSetField(tiff_output, TIFFTAG_SAMPLESPERPIXEL, n_samples);
+//    TIFFSetField(tiff_output, TIFFTAG_BITSPERSAMPLE, 8);
+//    TIFFSetField(tiff_output, TIFFTAG_ORIENTATION, (int)ORIENTATION_BOTLEFT);
+//    TIFFSetField(tiff_output, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+//    TIFFSetField(tiff_output, TIFFTAG_COMPRESSION, COMPRESSION_NONE);
+//    TIFFSetField(tiff_output, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_YCBCR);
+//    TIFFSetField(tiff_output, TIFFTAG_YCBCRSUBSAMPLING, YCbCr_subsampling[0], YCbCr_subsampling[1]);
+//    TIFFSetField(tiff_output, TIFFTAG_YCBCRPOSITIONING, YCBCRPOSITION_COSITED);
+//    //printf("[+] \033[1;32mSuccessfully Set TIFF Tags\033[0m\n");
+//
+//
+//
+//    size_t bytes_per_line = ((chroma_values * width) * 1/YCbCr_subsampling[0]) + width; //adjust for subsampling
+//    uint8* buffer = malloc(bytes_per_line);
+//
+//
+//
+//    //printf("[o] Writing TIFF Image\n");
+//    for (int row = 0; row < height; ++row) {
+//        memcpy(buffer, &image[row * width * n_samples], width * n_samples);
+//        if (TIFFWriteScanline(tiff_output, buffer, row, 0) < 0){
+//            printf("[-] \033[0;31mWriting data failed!\033[0m\n");
+//            exit(EXIT_FAILURE);
+//        }
+//    }
+//
+//    //printf("[+] \033[1;32mSuccessfully Wrote TIFF Image\033[0m\n");
+//    free(buffer);
+//    TIFFClose(tiff_output);
+//}
 
 // Simple implementation, accessing two rows at a time (benchmark)
 uint8* downsample_ycbcr(const uint8* ycbcr){
+    //TODO fix logic
     uint32 width = 640;
     uint32 height = 480;
-    uint8* downsampled_ycbcr = malloc(width * height * 2);
+    uint8* downsampled_ycbcr = malloc(width * height * 3 / 2);
+    uint32 row_size = width * 3;
 
-    for (int pixel = 0; pixel < width * height; pixel+=6) {
-        downsampled_ycbcr[pixel] = TIFFGetR(ycbcr[pixel]);
-        downsampled_ycbcr[pixel+1] = TIFFGetR(ycbcr[pixel+3]);
-        downsampled_ycbcr[pixel+2] = TIFFGetR(ycbcr[pixel+640]);
-        downsampled_ycbcr[pixel+3] = TIFFGetR(ycbcr[pixel+643]);
-        uint8 cbSum = TIFFGetR(ycbcr[pixel+1]) + TIFFGetR(ycbcr[pixel+4]) + TIFFGetR(ycbcr[pixel+641]) + TIFFGetR(ycbcr[pixel+644]);
-        downsampled_ycbcr[pixel+4] = cbSum/4;
-        uint8 crSum = TIFFGetR(ycbcr[pixel+2]) + TIFFGetR(ycbcr[pixel+5]) + TIFFGetR(ycbcr[pixel+642]) + TIFFGetR(ycbcr[pixel+645]);
-        downsampled_ycbcr[pixel+5] = crSum/4;
+    uint32 downsampled_pixel = 0;
+    for (int pixel = 0; pixel < width * height * 3; pixel+=6) {
+        // store y00,y01,y10,y11,avg(cb00,cb01,cb10,cb11),avg(cr00,cr01,cr10,cr11)
+        downsampled_ycbcr[downsampled_pixel] = TIFFGetR(ycbcr[pixel]); //y00
+        downsampled_ycbcr[downsampled_pixel+1] = TIFFGetR(ycbcr[pixel+3]); //y01
+        downsampled_ycbcr[downsampled_pixel+2] = TIFFGetR(ycbcr[pixel+row_size]); //y10
+        downsampled_ycbcr[downsampled_pixel+3] = TIFFGetR(ycbcr[pixel+row_size+3]); //y11
+        uint32 cbSum = TIFFGetR(ycbcr[pixel+1]) + TIFFGetR(ycbcr[pixel+4]) + TIFFGetR(ycbcr[pixel+row_size+1]) + TIFFGetR(ycbcr[pixel+row_size+4]);
+        downsampled_ycbcr[downsampled_pixel+4] = cbSum/4; // avg(cb00,cb01,cb10,cb11)
+        uint32 crSum = TIFFGetR(ycbcr[pixel+2]) + TIFFGetR(ycbcr[pixel+5]) + TIFFGetR(ycbcr[pixel+row_size+2]) + TIFFGetR(ycbcr[pixel+row_size+5]);
+        downsampled_ycbcr[downsampled_pixel+5] = crSum/4; // avg(cr00,cr01,cr10,cr11)
 
-        if(pixel != 0 && pixel % 640 == 0) pixel+=640;
+        // if(end of row)
+        //      skip a row
+        if(pixel != 0 && pixel % row_size == 0) {
+            pixel+=row_size-6;
+            downsampled_pixel-=6;
+        }
+
+        downsampled_pixel+=6;
         //printf("[o] Converting RGB to YCbCr: \033[1;36m%0.00f%%\033[0m \b\r", ((float) pixel/ (float) (width * height)) * 100);
         //DEBUG_PRINT("[+] Converted Pixel %d: [\033[1;37mY: %d \033[1;36mCb: %d \033[1;35mCr: %d\033[0m]\n", pixel, Y(ycbcr, pixel), Cb(ycbcr, pixel), Cr(ycbcr, pixel));
     }
@@ -134,26 +194,32 @@ uint8* downsample_ycbcr(const uint8* ycbcr){
 uint8* downsample_ycbcr_v1(const uint8* ycbcr){
     uint32 width = 640;
     uint32 height = 480;
-    uint8* downsampled_ycbcr = malloc(width * height * 2);
+    uint8* downsampled_ycbcr = malloc(width * height * 3 / 2);
     bool backfill = false;
 
-    for (int pixel = 0; pixel < width * height; pixel+=6) {
-        //TODO ++6 never == 640
-        if(pixel != 0 && pixel % 640== 0){
-            backfill = !backfill;
-        }
+    for (int pixel = 0; pixel < width * height * 3; pixel+=6) {
 
         if (!backfill){
+            // if(first row to downsample)
+            //      store y00,y01,_,_,sum(cb00,cb01),sum(cr00,cr01)
             downsampled_ycbcr[pixel] = TIFFGetR(ycbcr[pixel]);
             downsampled_ycbcr[pixel+1] = TIFFGetR(ycbcr[pixel+3]);
             downsampled_ycbcr[pixel+4] = TIFFGetR(ycbcr[pixel+1]) + TIFFGetR(ycbcr[pixel+4]);
             downsampled_ycbcr[pixel+5] = TIFFGetR(ycbcr[pixel+2]) + TIFFGetR(ycbcr[pixel+5]);
         }
         else if (backfill){
+            // if(second row to downsample)
+            //      store _,_,y10,y11,avg(cb00,cb01,cb10,cb11),avg(cr00,cr01,cr10,cr11)
             downsampled_ycbcr[pixel+2] = TIFFGetR(ycbcr[pixel]);
             downsampled_ycbcr[pixel+3] = TIFFGetR(ycbcr[pixel+3]);
             downsampled_ycbcr[pixel+4] = (TIFFGetR(ycbcr[pixel+1]) + TIFFGetR(ycbcr[pixel+4]) + downsampled_ycbcr[pixel+4]) / 4;
             downsampled_ycbcr[pixel+5] = (TIFFGetR(ycbcr[pixel+2]) + TIFFGetR(ycbcr[pixel+5]) + downsampled_ycbcr[pixel+5]) / 4;
+        }
+
+        // if(end of row)
+        //      change fill type
+        if(pixel != 0 && pixel % (width * 3) == 0) {
+            backfill = !backfill;
         }
         //printf("[o] Converting RGB to YCbCr: \033[1;36m%0.00f%%\033[0m \b\r", ((float) pixel/ (float) (width * height)) * 100);
         //DEBUG_PRINT("[+] Converted Pixel %d: [\033[1;37mY: %d \033[1;36mCb: %d \033[1;35mCr: %d\033[0m]\n", pixel, Y(ycbcr, pixel), Cb(ycbcr, pixel), Cr(ycbcr, pixel));
@@ -348,6 +414,18 @@ void measure(uint8*(convert)(const uint32*), uint32* image, char* tag){
 
 }
 
+void measureDownsampling(uint8*(convert)(const uint32*), uint8*(downsample)(const uint8*), uint32* image, char* tag){
+    struct timeval stop, start;
+    uint8* ycbcr = convert(image);
+    gettimeofday(&start, NULL);
+    uint* downsampled_ycbcr = downsample(ycbcr);
+    gettimeofday(&stop, NULL);
+    uint64 delta = (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec;
+    printf("\033[1;36m[%s]\033[0m RGB TO YCbCr Conversion took \033[1;36m%lu\033[0m microseconds\n", tag, delta);
+    write_downsampled_tiff_image(ycbcr, tag, 640, 480);
+
+}
+
 int main(int argc, char* argv[]) {
 
     if (argc < 3){
@@ -361,6 +439,10 @@ int main(int argc, char* argv[]) {
     measure(convert_rgb_to_ycbcr_v2, rgb_image, "Fixed-Point Arithmetic with Software Pipelining");
     measure(convert_rgb_to_ycbcr_v2_5, rgb_image, "Shift Only");
     measure(convert_rgb_to_ycbcr_v3, rgb_image, "SIMD");
+
+    measureDownsampling(convert_rgb_to_ycbcr, downsample_ycbcr, rgb_image, "Downsample (2 Rows/Loop)");
+//    measureDownsampling(convert_rgb_to_ycbcr, downsample_ycbcr_v1, rgb_image, "Downsample w/ Backfilling");
+//    measure(downsample_ycbcr_v1(convert_rgb_to_ycbcr),rgb_image, "Downsample")
 
     return 0;
 }
