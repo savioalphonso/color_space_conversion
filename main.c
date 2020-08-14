@@ -268,25 +268,11 @@ uint8* convert_rgb_to_ycbcr_v2_5(const uint32 *raster){
     return ycbcr;
 }
 
-
-void print8x16(uint16x8_t r){
-
-    static uint16_t p[8];
-    vst1q_u16(p, r);
-
-
-    for (int i = 0; i < 8; ++i) {
-        printf("%d ", p[i]);
-    }
-    printf("\n");
-}
-
-
 uint8* convert_rgb_to_ycbcr_v3(const uint32 *raster){
     uint8* raster_8 = (uint8 *) raster;
     uint32 num_pixels = 640 * 480;
     uint8* ycbcr = calloc(num_pixels*3, 1);
-    uint8x16x3_t ycbcr_split;
+    uint8x16x3_t ycbcr_split; //result
     uint16x8x2_t y_16;
     uint16x8x2_t Cb_16;
     uint16x8x2_t Cr_16;
@@ -295,9 +281,11 @@ uint8* convert_rgb_to_ycbcr_v3(const uint32 *raster){
     uint8x8x2_t g;
     uint8x8x2_t b;
 
+
+    //Load scalar values
     uint8x8x3_t scalar_Y;
-    scalar_Y.val[0] = vdup_n_u8(65);
-    scalar_Y.val[1]  = vdup_n_u8(129);
+    scalar_Y.val[0] = vdup_n_u8(65); //Load 16x1 8bit vector with 65 [65,65,65...]
+    scalar_Y.val[1]  = vdup_n_u8(129); //same for lines 287-300
     scalar_Y.val[2]  = vdup_n_u8(25);
 
     uint8x8x3_t scalar_Cb;
@@ -311,50 +299,68 @@ uint8* convert_rgb_to_ycbcr_v3(const uint32 *raster){
 
     uint8x16_t offset = vdupq_n_u8(16);
 
+
+    //Load 64 bytes of interleaved ABGR pixel data into 4 vectors of R,G,B,A (16 values per vector)
     uint8x16x4_t rgba = vld4q_u8(raster_8);
 
-    for (int i = 0; i < 19200; ++i) {
+    for (int i = 0; i < 19200; ++i) { //640x480x4 bytes / 64 bytes per iteration = 19200
 
-        r.val[0] = vget_low_u8(rgba.val[0]);
-        r.val[1] = vget_high_u8(rgba.val[0]);
-        g.val[0] = vget_low_u8(rgba.val[1]);
+        r.val[0] = vget_low_u8(rgba.val[0]); //take the first 8 values of the r vector
+        r.val[1] = vget_high_u8(rgba.val[0]); //take the last 8 values of the r vector
+        g.val[0] = vget_low_u8(rgba.val[1]); //ditto
         g.val[1] = vget_high_u8(rgba.val[1]);
         b.val[0] = vget_low_u8(rgba.val[2]);
         b.val[1] = vget_high_u8(rgba.val[2]);
 
+
+        // Multiply red pixel by Y scalar values
         y_16.val[0] = vmull_u8(r.val[0], scalar_Y.val[0]);
         y_16.val[1] = vmull_u8(r.val[1], scalar_Y.val[0]);
+
+        //Multiply green pixel by Y scalar values and add the multiplication with store value
         y_16.val[0] = vmlal_u8(y_16.val[0], g.val[0], scalar_Y.val[1]);
         y_16.val[1] = vmlal_u8(y_16.val[1], g.val[1], scalar_Y.val[1]);
+        //Multiply blue pixel by Y scalar values and add the multiplication with store value
         y_16.val[0] = vmlal_u8(y_16.val[0], b.val[0], scalar_Y.val[2]);
         y_16.val[1] = vmlal_u8(y_16.val[1], b.val[1], scalar_Y.val[2]);
 
-
+        //128 in fixed point
         Cb_16.val[0] = vdupq_n_u16(32768);
         Cb_16.val[1] = vdupq_n_u16(32768);
 
         Cr_16.val[0] = vdupq_n_u16(32768);
         Cr_16.val[1] = vdupq_n_u16(32768);
 
+
+        //Multiply red pixel by Cb scalar values and add the multiplication with store value
         Cb_16.val[0] = vmlsl_u8(Cb_16.val[0], r.val[0], scalar_Cb.val[0]);
         Cb_16.val[1] = vmlsl_u8(Cb_16.val[1], r.val[1], scalar_Cb.val[0]);
+        //Multiply green pixel by Cb scalar values and add the multiplication with store value
         Cb_16.val[0] = vmlsl_u8(Cb_16.val[0], g.val[0], scalar_Cb.val[1]);
         Cb_16.val[1] = vmlsl_u8(Cb_16.val[1], g.val[1], scalar_Cb.val[1]);
+        //Multiply blue pixel by Cb scalar values and add the multiplication with store value
         Cb_16.val[0] = vmlal_u8(Cb_16.val[0], b.val[0], scalar_Cb.val[2]);
         Cb_16.val[1] = vmlal_u8(Cb_16.val[1], b.val[1], scalar_Cb.val[2]);
+        //Multiply red pixel by the same scalar value, since they are the same
         Cr_16.val[0] = vmlal_u8(Cr_16.val[0], r.val[0], scalar_Cb.val[2]);
         Cr_16.val[1] = vmlal_u8(Cr_16.val[1], r.val[1], scalar_Cb.val[2]);
+        //Multiply green pixel by Cr scalar values and add the multiplication with store value
         Cr_16.val[0] = vmlsl_u8(Cr_16.val[0], g.val[0], scalar_Cr.val[0]);
         Cr_16.val[1] = vmlsl_u8(Cr_16.val[1], g.val[1], scalar_Cr.val[0]);
+        //Multiply blue pixel by Cr scalar values and add the multiplication with store value
         Cr_16.val[0] = vmlsl_u8(Cr_16.val[0], b.val[0], scalar_Cr.val[1]);
         Cr_16.val[1] = vmlsl_u8(Cr_16.val[1], b.val[1], scalar_Cr.val[1]);
 
-
+        //shift both 8x8 16-bit vectors by 8 to convert to 8-bit, combine two 8x8 8-bit vectors into 1 8x16, and add 16
         ycbcr_split.val[0] = vaddq_u8(vcombine_u8(vqshrn_n_u16(y_16.val[0], 8), vqshrn_n_u16(y_16.val[1], 8)), offset);
+
+        //shift both 8x8 16-bit vectors by 8 to convert to 8-bit, combine two 8x8 8-bit vectors into 1 8x16
         ycbcr_split.val[1] = vcombine_u8(vqshrn_n_u16(Cb_16.val[0], 8), vqshrn_n_u16(Cb_16.val[1], 8));
         ycbcr_split.val[2] = vcombine_u8(vqshrn_n_u16(Cr_16.val[0], 8), vqshrn_n_u16(Cr_16.val[1], 8));
-        vst3q_u8(ycbcr + (48*i), ycbcr_split);
-        raster_8 +=64;
+
+        //interveave the three seperate y, cb, cr vectors into an array of YCbCrYCbCr.. etc
+        vst3q_u8(ycbcr + (48*i), ycbcr_split); //move pointer 16 (values) * 3 (samples)
+        raster_8 +=64; // load next 64 bytes;
         rgba = vld4q_u8(raster_8);
     }
 
