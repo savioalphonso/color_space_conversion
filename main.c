@@ -25,9 +25,8 @@
 volatile int completed[3]={0,0,0};
 
 typedef struct data{
-    uint8 done;
     uint8* conv_segment;
-    uint8* segment;
+    uint32* segment;
 } worker_data_t;
 
 uint32 * read_tiff_image(char* filename){
@@ -213,18 +212,33 @@ uint8* convert_rgb_to_ycbcr_v3(const uint32 *raster){
     uint32 num_pixels = 640 * 480;
     uint8* ycbcr = calloc(num_pixels*3, 1);
     uint8x16x3_t ycbcr_split;
+    uint16x8x2_t y_16;
+    uint16x8x2_t Cb_16;
+    uint16x8x2_t Cr_16;
 
+    uint8x8x2_t r;
+    uint8x8x2_t g;
+    uint8x8x2_t b;
 
-    int y_idx = 0;
+    uint8x8x3_t scalar_Y;
+    scalar_Y.val[0] = vdup_n_u8(65);
+    scalar_Y.val[1]  = vdup_n_u8(129);
+    scalar_Y.val[2]  = vdup_n_u8(25);
+
+    uint8x8x3_t scalar_Cb;
+    scalar_Cb.val[0] = vdup_n_u8(37);
+    scalar_Cb.val[1]  = vdup_n_u8(74);
+    scalar_Cb.val[2]  = vdup_n_u8(112);
+
+    uint8x8x2_t scalar_Cr;
+    scalar_Cr.val[0] = vdup_n_u8(94);
+    scalar_Cr.val[1]  = vdup_n_u8(18);
 
     for (int i = 0; i < 19200; ++i) {
+
         uint8x16x4_t rgba = vld4q_u8(raster_8);
         raster_8 += 64;
-        uint16x8x2_t y_16;
-        uint8x8_t scalar = vdup_n_u8(65);
-        uint8x8x2_t r;
-        uint8x8x2_t g;
-        uint8x8x2_t b;
+
         r.val[0] = vget_low_u8(rgba.val[0]);
         r.val[1] = vget_high_u8(rgba.val[0]);
         g.val[0] = vget_low_u8(rgba.val[1]);
@@ -232,17 +246,16 @@ uint8* convert_rgb_to_ycbcr_v3(const uint32 *raster){
         b.val[0] = vget_low_u8(rgba.val[2]);
         b.val[1] = vget_high_u8(rgba.val[2]);
 
-        y_16.val[0] = vmull_u8(r.val[0], scalar);
-        y_16.val[1] = vmull_u8(r.val[1], scalar);
-        scalar = vdup_n_u8(129);
-        y_16.val[0] = vmlal_u8(y_16.val[0], g.val[0], scalar);
-        y_16.val[1] = vmlal_u8(y_16.val[1], g.val[1], scalar);
-        scalar = vdup_n_u8(25);
-        y_16.val[0] = vmlal_u8(y_16.val[0], b.val[0], scalar);
-        y_16.val[1] = vmlal_u8(y_16.val[1], b.val[1], scalar);
+        y_16.val[0] = vdupq_n_u16(272);
+        y_16.val[1] = vdupq_n_u16(272);
 
-        uint16x8x2_t Cb_16;
-        uint16x8x2_t Cr_16;
+        y_16.val[0] = vmlal_u8(y_16.val[0], r.val[0], scalar_Y.val[0]);
+        y_16.val[1] = vmlal_u8(y_16.val[1], r.val[1], scalar_Y.val[0]);
+        y_16.val[0] = vmlal_u8(y_16.val[0], g.val[0], scalar_Y.val[1]);
+        y_16.val[1] = vmlal_u8(y_16.val[1], g.val[1], scalar_Y.val[1]);
+        y_16.val[0] = vmlal_u8(y_16.val[0], b.val[0], scalar_Y.val[2]);
+        y_16.val[1] = vmlal_u8(y_16.val[1], b.val[1], scalar_Y.val[2]);
+
 
         Cb_16.val[0] = vdupq_n_u16(32768);
         Cb_16.val[1] = vdupq_n_u16(32768);
@@ -250,169 +263,140 @@ uint8* convert_rgb_to_ycbcr_v3(const uint32 *raster){
         Cr_16.val[0] = vdupq_n_u16(32768);
         Cr_16.val[1] = vdupq_n_u16(32768);
 
-        scalar = vdup_n_u8(37);
-        Cb_16.val[0] = vmlsl_u8(Cb_16.val[0], r.val[0], scalar);
-        Cb_16.val[1] = vmlsl_u8(Cb_16.val[1], r.val[1], scalar);
-        scalar = vdup_n_u8(74);
-        Cb_16.val[0] = vmlsl_u8(Cb_16.val[0], g.val[0], scalar);
-        Cb_16.val[1] = vmlsl_u8(Cb_16.val[1], g.val[1], scalar);
-        scalar = vdup_n_u8(112);
-        Cb_16.val[0] = vmlal_u8(Cb_16.val[0], b.val[0], scalar);
-        Cb_16.val[1] = vmlal_u8(Cb_16.val[1], b.val[1], scalar);
-        Cr_16.val[0] = vmlal_u8(Cr_16.val[0], r.val[0], scalar);
-        Cr_16.val[1] = vmlal_u8(Cr_16.val[1], r.val[1], scalar);
-        scalar = vdup_n_u8(94);
-        Cr_16.val[0] = vmlsl_u8(Cr_16.val[0], g.val[0], scalar);
-        Cr_16.val[1] = vmlsl_u8(Cr_16.val[1], g.val[1], scalar);
-        scalar = vdup_n_u8(18);
-        Cr_16.val[0] = vmlsl_u8(Cr_16.val[0], b.val[0], scalar);
-        Cr_16.val[1] = vmlsl_u8(Cr_16.val[1], b.val[1], scalar);
+        Cb_16.val[0] = vmlsl_u8(Cb_16.val[0], r.val[0], scalar_Cb.val[0]);
+        Cb_16.val[1] = vmlsl_u8(Cb_16.val[1], r.val[1], scalar_Cb.val[0]);
+        Cb_16.val[0] = vmlsl_u8(Cb_16.val[0], g.val[0], scalar_Cb.val[1]);
+        Cb_16.val[1] = vmlsl_u8(Cb_16.val[1], g.val[1], scalar_Cb.val[1]);
+        Cb_16.val[0] = vmlal_u8(Cb_16.val[0], b.val[0], scalar_Cb.val[2]);
+        Cb_16.val[1] = vmlal_u8(Cb_16.val[1], b.val[1], scalar_Cb.val[2]);
+        Cr_16.val[0] = vmlal_u8(Cr_16.val[0], r.val[0], scalar_Cb.val[2]);
+        Cr_16.val[1] = vmlal_u8(Cr_16.val[1], r.val[1], scalar_Cb.val[2]);
+        Cr_16.val[0] = vmlsl_u8(Cr_16.val[0], g.val[0], scalar_Cr.val[0]);
+        Cr_16.val[1] = vmlsl_u8(Cr_16.val[1], g.val[1], scalar_Cr.val[0]);
+        Cr_16.val[0] = vmlsl_u8(Cr_16.val[0], b.val[0], scalar_Cr.val[1]);
+        Cr_16.val[1] = vmlsl_u8(Cr_16.val[1], b.val[1], scalar_Cr.val[1]);
 
-        const uint8x16_t offset = vdupq_n_u8(16);
-        ycbcr_split.val[0] = vaddq_u8(vcombine_u8(vqshrn_n_u16(y_16.val[0], 8), vqshrn_n_u16(y_16.val[1], 8)), offset);
+
+        ycbcr_split.val[0] = vcombine_u8(vqshrn_n_u16(y_16.val[0], 8), vqshrn_n_u16(y_16.val[1], 8));
         ycbcr_split.val[1] = vcombine_u8(vqshrn_n_u16(Cb_16.val[0], 8), vqshrn_n_u16(Cb_16.val[1], 8));
         ycbcr_split.val[2] = vcombine_u8(vqshrn_n_u16(Cr_16.val[0], 8), vqshrn_n_u16(Cr_16.val[1], 8));
-        vst3q_u8(ycbcr + y_idx, ycbcr_split);
-        y_idx += 48;
+        vst3q_u8(ycbcr, ycbcr_split);
+        ycbcr+=48;
     }
 
     return ycbcr;
 }
 
-void* conversion_worker(void* args){
-    printf("Thread Started!");
-    worker_data_t data = worker_data_t* args;
+void* simd_worker(void* args){
 
-    printf("Started Conversion!");
-    uint8x16x4_t rgba = vld4q_u8(data.segment);
+    worker_data_t* workerData = (worker_data_t*) args;
+
+    uint8* raster_8 = (uint8 *) workerData->segment;
+    uint8x16x3_t ycbcr_split;
     uint16x8x2_t y_16;
-    uint8x8_t scalar = vdup_n_u8(65);
-    uint8x8x2_t r;
-    uint8x8x2_t g;
-    uint8x8x2_t b;
-    r.val[0] = vget_low_u8(rgba.val[0]);
-    r.val[1] = vget_high_u8(rgba.val[0]);
-    g.val[0] = vget_low_u8(rgba.val[1]);
-    g.val[1] = vget_high_u8(rgba.val[1]);
-    b.val[0] = vget_low_u8(rgba.val[2]);
-    b.val[1] = vget_high_u8(rgba.val[2]);
-
-    y_16.val[0] = vmull_u8(r.val[0], scalar);
-    y_16.val[1] = vmull_u8(r.val[1], scalar);
-    scalar = vdup_n_u8(129);
-    y_16.val[0] = vmlal_u8(y_16.val[0], g.val[0], scalar);
-    y_16.val[1] = vmlal_u8(y_16.val[1], g.val[1], scalar);
-    scalar = vdup_n_u8(25);
-    y_16.val[0] = vmlal_u8(y_16.val[0], b.val[0], scalar);
-    y_16.val[1] = vmlal_u8(y_16.val[1], b.val[1], scalar);
-
     uint16x8x2_t Cb_16;
     uint16x8x2_t Cr_16;
 
-    Cb_16.val[0] = vdupq_n_u16(32768);
-    Cb_16.val[1] = vdupq_n_u16(32768);
+    uint8x8x2_t r;
+    uint8x8x2_t g;
+    uint8x8x2_t b;
 
-    Cr_16.val[0] = vdupq_n_u16(32768);
-    Cr_16.val[1] = vdupq_n_u16(32768);
+    uint8x8x3_t scalar_Y;
+    scalar_Y.val[0] = vdup_n_u8(65);
+    scalar_Y.val[1]  = vdup_n_u8(129);
+    scalar_Y.val[2]  = vdup_n_u8(25);
 
-    scalar = vdup_n_u8(37);
-    Cb_16.val[0] = vmlsl_u8(Cb_16.val[0], r.val[0], scalar);
-    Cb_16.val[1] = vmlsl_u8(Cb_16.val[1], r.val[1], scalar);
-    scalar = vdup_n_u8(74);
-    Cb_16.val[0] = vmlsl_u8(Cb_16.val[0], g.val[0], scalar);
-    Cb_16.val[1] = vmlsl_u8(Cb_16.val[1], g.val[1], scalar);
-    scalar = vdup_n_u8(112);
-    Cb_16.val[0] = vmlal_u8(Cb_16.val[0], b.val[0], scalar);
-    Cb_16.val[1] = vmlal_u8(Cb_16.val[1], b.val[1], scalar);
-    Cr_16.val[0] = vmlal_u8(Cr_16.val[0], r.val[0], scalar);
-    Cr_16.val[1] = vmlal_u8(Cr_16.val[1], r.val[1], scalar);
-    scalar = vdup_n_u8(94);
-    Cr_16.val[0] = vmlsl_u8(Cr_16.val[0], g.val[0], scalar);
-    Cr_16.val[1] = vmlsl_u8(Cr_16.val[1], g.val[1], scalar);
-    scalar = vdup_n_u8(18);
-    Cr_16.val[0] = vmlsl_u8(Cr_16.val[0], b.val[0], scalar);
-    Cr_16.val[1] = vmlsl_u8(Cr_16.val[1], b.val[1], scalar);
+    uint8x8x3_t scalar_Cb;
+    scalar_Cb.val[0] = vdup_n_u8(37);
+    scalar_Cb.val[1]  = vdup_n_u8(74);
+    scalar_Cb.val[2]  = vdup_n_u8(112);
 
-    const uint8x16_t offset = vdupq_n_u8(16);
-    uint8x16x3_t ycbcr_split;
+    uint8x8x2_t scalar_Cr;
+    scalar_Cr.val[0] = vdup_n_u8(94);
+    scalar_Cr.val[1]  = vdup_n_u8(18);
 
-    ycbcr_split.val[0] = vaddq_u8(vcombine_u8(vqshrn_n_u16(y_16.val[0], 8), vqshrn_n_u16(y_16.val[1], 8)), offset);
-    ycbcr_split.val[1] = vcombine_u8(vqshrn_n_u16(Cb_16.val[0], 8), vqshrn_n_u16(Cb_16.val[1], 8));
-    ycbcr_split.val[2] = vcombine_u8(vqshrn_n_u16(Cr_16.val[0], 8), vqshrn_n_u16(Cr_16.val[1], 8));
-    vst3q_u8(data.conv_segment, ycbcr_split);
+    uint8x16_t offset = vdupq_n_u8(16);
 
-    printf("Thread Done!");
-    data.done = 1;
+    uint8x16x4_t rgba = vld4q_u8(raster_8);
+
+    for (int i = 0; i < 4800; ++i) {
+
+        r.val[0] = vget_low_u8(rgba.val[0]);
+        r.val[1] = vget_high_u8(rgba.val[0]);
+        g.val[0] = vget_low_u8(rgba.val[1]);
+        g.val[1] = vget_high_u8(rgba.val[1]);
+        b.val[0] = vget_low_u8(rgba.val[2]);
+        b.val[1] = vget_high_u8(rgba.val[2]);
+
+        y_16.val[0] = vmull_u8(r.val[0], scalar_Y.val[0]);
+        y_16.val[1] = vmull_u8(r.val[1], scalar_Y.val[0]);
+        y_16.val[0] = vmlal_u8(y_16.val[0], g.val[0], scalar_Y.val[1]);
+        y_16.val[1] = vmlal_u8(y_16.val[1], g.val[1], scalar_Y.val[1]);
+        y_16.val[0] = vmlal_u8(y_16.val[0], b.val[0], scalar_Y.val[2]);
+        y_16.val[1] = vmlal_u8(y_16.val[1], b.val[1], scalar_Y.val[2]);
+
+
+        Cb_16.val[0] = vdupq_n_u16(32768);
+        Cb_16.val[1] = vdupq_n_u16(32768);
+
+        Cr_16.val[0] = vdupq_n_u16(32768);
+        Cr_16.val[1] = vdupq_n_u16(32768);
+
+        Cb_16.val[0] = vmlsl_u8(Cb_16.val[0], r.val[0], scalar_Cb.val[0]);
+        Cb_16.val[1] = vmlsl_u8(Cb_16.val[1], r.val[1], scalar_Cb.val[0]);
+        Cb_16.val[0] = vmlsl_u8(Cb_16.val[0], g.val[0], scalar_Cb.val[1]);
+        Cb_16.val[1] = vmlsl_u8(Cb_16.val[1], g.val[1], scalar_Cb.val[1]);
+        Cb_16.val[0] = vmlal_u8(Cb_16.val[0], b.val[0], scalar_Cb.val[2]);
+        Cb_16.val[1] = vmlal_u8(Cb_16.val[1], b.val[1], scalar_Cb.val[2]);
+        Cr_16.val[0] = vmlal_u8(Cr_16.val[0], r.val[0], scalar_Cb.val[2]);
+        Cr_16.val[1] = vmlal_u8(Cr_16.val[1], r.val[1], scalar_Cb.val[2]);
+        Cr_16.val[0] = vmlsl_u8(Cr_16.val[0], g.val[0], scalar_Cr.val[0]);
+        Cr_16.val[1] = vmlsl_u8(Cr_16.val[1], g.val[1], scalar_Cr.val[0]);
+        Cr_16.val[0] = vmlsl_u8(Cr_16.val[0], b.val[0], scalar_Cr.val[1]);
+        Cr_16.val[1] = vmlsl_u8(Cr_16.val[1], b.val[1], scalar_Cr.val[1]);
+
+
+        ycbcr_split.val[0] = vaddq_u8(vcombine_u8(vqshrn_n_u16(y_16.val[0], 8), vqshrn_n_u16(y_16.val[1], 8)), offset);
+        ycbcr_split.val[1] = vcombine_u8(vqshrn_n_u16(Cb_16.val[0], 8), vqshrn_n_u16(Cb_16.val[1], 8));
+        ycbcr_split.val[2] = vcombine_u8(vqshrn_n_u16(Cr_16.val[0], 8), vqshrn_n_u16(Cr_16.val[1], 8));
+        vst3q_u8(workerData->conv_segment, ycbcr_split);
+        workerData->conv_segment+=48;
+        raster_8 +=64;
+        rgba = vld4q_u8(raster_8);
+    }
+    return NULL;
 }
 
-uint8* convert_rgb_to_ycbcr_v4(const uint32 *raster) {
-    uint32 num_pixels = 640 * 480;
-    uint8 *ycbcr = calloc(num_pixels * 3, 1);
-    uint32 offset = 0;
+
+
+uint8* convert_rgb_to_ycbcr_v4(const uint32 *raster){
+
+    int thread_offset  = 76800;
+    pthread_t threads[4];
     pthread_attr_t attr;
     cpu_set_t cpus;
     pthread_attr_init(&attr);
-    pthread_t workers[3];
-    worker_data_t worker_data[3];
 
-    for (int i = 0; i < 3; ++i) {
+    uint8* ycbcr = malloc(921600);
+    worker_data_t* workerData = malloc(sizeof(worker_data_t) * 4);
+
+    for (int id = 0; id < 4; ++id) {
+
+        (workerData + id)->segment = (uint8*) (raster + (thread_offset * id));
+        (workerData + id)->conv_segment = (ycbcr + (230400 * id));
 
         CPU_ZERO(&cpus);
-        CPU_SET(i+1, &cpus);
+        CPU_SET(id, &cpus);
         pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
-        worker_data[i].segment = ((uint8*) raster) + offset;
-        worker_data[i].conv_segment = ycbcr + offset;
-        worker_data[i].done = 0;
-        pthread_create(&workers[i], &attr, conversion_worker, &worker_data[i]);
-        offset+=64;
+        pthread_create(&threads[id], NULL, simd_worker, (void*) (workerData + id) );
     }
-
-    const int max = 19200;
-
-    while(offset < max){
-
-        if (worker_data[0].done && offset < max){
-            worker_data[0].segment = ((uint8*) raster) + offset;
-            worker_data[0].conv_segment = ycbcr + offset;
-            CPU_ZERO(&cpus);
-            CPU_SET(1, &cpus);
-            pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
-            pthread_create(&workers[0], &attr, conversion_worker, &worker_data[0]);
-            offset += 64;
-            worker_data[0].done = 0;
-        }
-
-        if (worker_data[1].done && offset < max){
-            worker_data[1].segment = ((uint8*) raster) + offset;
-            worker_data[1].conv_segment = ycbcr + offset;
-            CPU_ZERO(&cpus);
-            CPU_SET(2, &cpus);
-            pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
-            pthread_create(&workers[1], &attr, conversion_worker, &worker_data[1]);
-            offset += 64;
-            worker_data[1].done = 0;
-        }
-
-        if (worker_data[2].done && offset < max){
-            worker_data[2].segment = ((uint8*) raster) + offset;
-            worker_data[2].conv_segment = ycbcr + offset;
-            CPU_ZERO(&cpus);
-            CPU_SET(3, &cpus);
-            pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
-            pthread_create(&workers[2], &attr, conversion_worker, &worker_data[2]);
-            offset += 64;
-            worker_data[2].done = 0;
-        }
-    }
-
-    for (int i = 0; i < 3; ++i) {
-        pthread_join(workers[i], NULL);
+    for (int id = 0; id < 4; ++id) {
+        pthread_join(threads[id], NULL);
     }
 
     return ycbcr;
+
 }
-
-
 
 void measure(uint8*(convert)(const uint32*), uint32* image, char* tag){
     struct timeval stop, start;
