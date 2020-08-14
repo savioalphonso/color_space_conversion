@@ -234,10 +234,11 @@ uint8* convert_rgb_to_ycbcr_v3(const uint32 *raster){
     scalar_Cr.val[0] = vdup_n_u8(94);
     scalar_Cr.val[1]  = vdup_n_u8(18);
 
-    for (int i = 0; i < 19200; ++i) {
+    uint8x16_t offset = vdupq_n_u8(16);
 
-        uint8x16x4_t rgba = vld4q_u8(raster_8);
-        raster_8 += 64;
+    uint8x16x4_t rgba = vld4q_u8(raster_8);
+
+    for (int i = 0; i < 19200; ++i) {
 
         r.val[0] = vget_low_u8(rgba.val[0]);
         r.val[1] = vget_high_u8(rgba.val[0]);
@@ -246,11 +247,8 @@ uint8* convert_rgb_to_ycbcr_v3(const uint32 *raster){
         b.val[0] = vget_low_u8(rgba.val[2]);
         b.val[1] = vget_high_u8(rgba.val[2]);
 
-        y_16.val[0] = vdupq_n_u16(272);
-        y_16.val[1] = vdupq_n_u16(272);
-
-        y_16.val[0] = vmlal_u8(y_16.val[0], r.val[0], scalar_Y.val[0]);
-        y_16.val[1] = vmlal_u8(y_16.val[1], r.val[1], scalar_Y.val[0]);
+        y_16.val[0] = vmull_u8(r.val[0], scalar_Y.val[0]);
+        y_16.val[1] = vmull_u8(r.val[1], scalar_Y.val[0]);
         y_16.val[0] = vmlal_u8(y_16.val[0], g.val[0], scalar_Y.val[1]);
         y_16.val[1] = vmlal_u8(y_16.val[1], g.val[1], scalar_Y.val[1]);
         y_16.val[0] = vmlal_u8(y_16.val[0], b.val[0], scalar_Y.val[2]);
@@ -277,11 +275,12 @@ uint8* convert_rgb_to_ycbcr_v3(const uint32 *raster){
         Cr_16.val[1] = vmlsl_u8(Cr_16.val[1], b.val[1], scalar_Cr.val[1]);
 
 
-        ycbcr_split.val[0] = vcombine_u8(vqshrn_n_u16(y_16.val[0], 8), vqshrn_n_u16(y_16.val[1], 8));
+        ycbcr_split.val[0] = vaddq_u8(vcombine_u8(vqshrn_n_u16(y_16.val[0], 8), vqshrn_n_u16(y_16.val[1], 8)), offset);
         ycbcr_split.val[1] = vcombine_u8(vqshrn_n_u16(Cb_16.val[0], 8), vqshrn_n_u16(Cb_16.val[1], 8));
         ycbcr_split.val[2] = vcombine_u8(vqshrn_n_u16(Cr_16.val[0], 8), vqshrn_n_u16(Cr_16.val[1], 8));
-        vst3q_u8(ycbcr, ycbcr_split);
-        ycbcr+=48;
+        vst3q_u8(ycbcr + (48*i), ycbcr_split);
+        raster_8 +=64;
+        rgba = vld4q_u8(raster_8);
     }
 
     return ycbcr;
@@ -367,6 +366,12 @@ void* simd_worker(void* args){
     return NULL;
 }
 
+
+uint8* simd_asm(const uint32 *raster){
+
+
+
+}
 
 
 uint8* convert_rgb_to_ycbcr_v4(const uint32 *raster){
