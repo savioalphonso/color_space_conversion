@@ -129,6 +129,8 @@ uint8* downsample_ycbcr(const uint8* ycbcr){
         downsampled_ycbcr[downsampled_pixel+5] = (uint8)(crSum/4); // avg(cr00,cr01,cr10,cr11)
 
         downsampled_pixel+=6;
+        //printf("[o] Converting RGB to YCbCr: \033[1;36m%0.00f%%\033[0m \b\r", ((float) pixel/ (float) (width * height)) * 100);
+        //DEBUG_PRINT("[+] Converted Pixel %d: [\033[1;37mY: %d \033[1;36mCb: %d \033[1;35mCr: %d\033[0m]\n", pixel, Y(ycbcr, pixel), Cb(ycbcr, pixel), Cr(ycbcr, pixel));
     }
 
     return downsampled_ycbcr;
@@ -213,7 +215,7 @@ uint8* convert_rgb_to_ycbcr_v1(const uint32 *raster){
 }
 
 
- uint8* convert_rgb_to_ycbcr_v2(const uint32 *raster){
+uint8* convert_rgb_to_ycbcr_v2(const uint32 *raster){
 
     uint32 num_pixels = 640 * 480;
     register uint16 tempY, tempCb, tempCr;
@@ -367,35 +369,6 @@ uint8* convert_rgb_to_ycbcr_v3(const uint32 *raster){
 }
 
 
-uint8* convert_rgb_to_ycbcr_v4(const uint32 *raster) {
-
-    int thread_offset = 76800;
-    pthread_t threads[4];
-    pthread_attr_t attr;
-    cpu_set_t cpus;
-    pthread_attr_init(&attr);
-
-    uint8 *ycbcr = malloc(921600);
-    worker_data_t *workerData = malloc(sizeof(worker_data_t) * 4);
-
-    for (int id = 0; id < 4; ++id) {
-
-        (workerData + id)->segment = (uint8 *) (raster + (thread_offset * id));
-        (workerData + id)->conv_segment = (ycbcr + (230400 * id));
-
-        CPU_ZERO(&cpus);
-        CPU_SET(id, &cpus);
-        pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
-        pthread_create(&threads[id], NULL, simd_worker, (void *) (workerData + id));
-    }
-    for (int id = 0; id < 4; ++id) {
-        pthread_join(threads[id], NULL);
-    }
-
-    return ycbcr;
-}
-
-
 void* simd_worker(void* args){
 
     worker_data_t* workerData = (worker_data_t*) args;
@@ -477,7 +450,37 @@ void* simd_worker(void* args){
 }
 
 
-uint8* simd_asm(const uint32 *raster){ }
+uint8* simd_asm(const uint32 *raster){
+}
+
+
+uint8* convert_rgb_to_ycbcr_v4(const uint32 *raster) {
+
+    int thread_offset = 76800;
+    pthread_t threads[4];
+    pthread_attr_t attr;
+    cpu_set_t cpus;
+    pthread_attr_init(&attr);
+
+    uint8 *ycbcr = malloc(921600);
+    worker_data_t *workerData = malloc(sizeof(worker_data_t) * 4);
+
+    for (int id = 0; id < 4; ++id) {
+
+        (workerData + id)->segment = (uint8 *) (raster + (thread_offset * id));
+        (workerData + id)->conv_segment = (ycbcr + (230400 * id));
+
+        CPU_ZERO(&cpus);
+        CPU_SET(id, &cpus);
+        pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
+        pthread_create(&threads[id], NULL, simd_worker, (void *) (workerData + id));
+    }
+    for (int id = 0; id < 4; ++id) {
+        pthread_join(threads[id], NULL);
+    }
+
+    return ycbcr;
+}
 
 
 void measureConversion(uint8*(convert)(const uint32*), uint32* image, char* tag){
