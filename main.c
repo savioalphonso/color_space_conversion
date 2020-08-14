@@ -109,7 +109,7 @@ uint8* downsample_ycbcr(const uint8* ycbcr){
 
     int downsampled_pixel = 0;
     for (int pixel = 0; pixel < (width * height * 3); pixel+=6) {
-        // if(end of row)
+        // if(start of next row)
         //      skip the next row since we have already processed its data
         if(pixel != 0 && pixel % row_size == 0) {
             pixel+=row_size;
@@ -133,7 +133,7 @@ uint8* downsample_ycbcr(const uint8* ycbcr){
     return downsampled_ycbcr;
 }
 
-// Accessing one row at a time and back filling
+// Accessing one row at a time and back filling, hoping for less cache misses.
 uint8* downsample_ycbcr_v1(const uint8* ycbcr){
     uint32 width = 640;
     uint32 height = 480;
@@ -173,8 +173,6 @@ uint8* downsample_ycbcr_v1(const uint8* ycbcr){
     return downsampled_ycbcr;
 }
 
-//
-//
 uint8 *convert_rgb_to_ycbcr(uint32 *raster) {
 
     /**
@@ -262,7 +260,6 @@ uint8* convert_rgb_to_ycbcr_v2_5(const uint32 *raster){
     return ycbcr;
 }
 
-
 void print8x16(uint16x8_t r){
 
     static uint16_t p[8];
@@ -345,19 +342,15 @@ uint8* convert_rgb_to_ycbcr_v3(const uint32 *raster){
     return ycbcr;
 }
 
-
-
-
-//void measure(uint8*(convert)(const uint32*), uint32* image, char* tag){
-//    struct timeval stop, start;
-//    gettimeofday(&start, NULL);
-//    uint8* ycbcr = convert(image);
-//    gettimeofday(&stop, NULL);
-//    uint64 delta = (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec;
-//    printf("\033[1;36m[%s]\033[0m RGB TO YCbCr Conversion took \033[1;36m%lu\033[0m microseconds\n", tag, delta);
-//    write_tiff_image(ycbcr, tag, 640, 480);
-//
-//}
+void measureConversion(uint8*(convert)(const uint32*), uint32* image, char* tag){
+    struct timeval stop, start;
+    gettimeofday(&start, NULL);
+    uint8* ycbcr = convert(image);
+    gettimeofday(&stop, NULL);
+    uint64 delta = (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec;
+    printf("\033[1;36m[%s]\033[0m RGB TO YCbCr Conversion took \033[1;36m%lu\033[0m microseconds\n", tag, delta);
+    write_tiff_image(ycbcr, tag, 640, 480, 1, 1);
+}
 
 void measureDownsampling(uint8*(convert)(const uint32*), uint8*(downsample)(const uint8*), uint32* image, char* tag){
     struct timeval stop, start;
@@ -379,15 +372,14 @@ int main(int argc, char* argv[]) {
     }
 
     uint32* rgb_image = read_tiff_image(argv[1]);
-//    measure(convert_rgb_to_ycbcr, rgb_image, "Unoptimized");
-//    measure(convert_rgb_to_ycbcr_v1, rgb_image, "Fixed-Point Arithmetic");
-//    measure(convert_rgb_to_ycbcr_v2, rgb_image, "Fixed-Point Arithmetic with Software Pipelining");
-//    measure(convert_rgb_to_ycbcr_v2_5, rgb_image, "Shift Only");
-//    measure(convert_rgb_to_ycbcr_v3, rgb_image, "SIMD");
+    measureConversion(convert_rgb_to_ycbcr, rgb_image, "Unoptimized");
+    measureConversion(convert_rgb_to_ycbcr_v1, rgb_image, "Fixed-Point Arithmetic");
+    measureConversion(convert_rgb_to_ycbcr_v2, rgb_image, "Fixed-Point Arithmetic with Software Pipelining");
+    measureConversion(convert_rgb_to_ycbcr_v2_5, rgb_image, "Shift Only");
+    measureConversion(convert_rgb_to_ycbcr_v3, rgb_image, "SIMD");
 
     measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr, rgb_image, "Downsample");
     measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v1, rgb_image, "Downsample with Backfilling");
-//    measure(downsample_ycbcr_v1(convert_rgb_to_ycbcr),rgb_image, "Downsample")
 
     return 0;
 }
