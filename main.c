@@ -84,8 +84,8 @@ void write_tiff_image(uint8 *image, char* filename, int width, int height) {
     //printf("[+] \033[1;32mSuccessfully Set TIFF Tags\033[0m\n");
 
 
-
-    size_t bytes_per_line = ((chroma_values * width) * 1/YCbCr_subsampling[0]) + width; //adjust for subsampling
+    int chroma_bytes = ((chroma_values * width) * 1/YCbCr_subsampling[0]) * ((chroma_values * height) * 1/YCbCr_subsampling[1]);
+    size_t bytes_per_line = chroma_bytes + (width*height); //adjust for subsampling
     uint8* buffer = malloc(bytes_per_line);
 
 
@@ -369,7 +369,91 @@ void* simd_worker(void* args){
 
 uint8* simd_asm(const uint32 *raster){
 
+    uint8* raster_8 = (uint8 *) raster;
+    uint32 num_pixels = 640 * 480;
+    uint8* ycbcr = calloc(num_pixels*3, 1);
+    uint8x16x3_t ycbcr_split;
+    uint16x8x2_t y_16;
+    uint16x8x2_t Cb_16;
+    uint16x8x2_t Cr_16;
 
+    uint8x8x2_t r;
+    uint8x8x2_t g;
+    uint8x8x2_t b;
+
+    uint8x8x3_t scalar_Y;
+    scalar_Y.val[0] = vdup_n_u8(65);
+    scalar_Y.val[1]  = vdup_n_u8(129);
+    scalar_Y.val[2]  = vdup_n_u8(25);
+
+    uint8x8x3_t scalar_Cb;
+    scalar_Cb.val[0] = vdup_n_u8(37);
+    scalar_Cb.val[1]  = vdup_n_u8(74);
+    scalar_Cb.val[2]  = vdup_n_u8(112);
+
+    uint8x8x2_t scalar_Cr;
+    scalar_Cr.val[0] = vdup_n_u8(94);
+    scalar_Cr.val[1]  = vdup_n_u8(18);
+
+    uint8x16_t offset = vdupq_n_u8(16);
+
+    uint8x16x4_t rgba; //= vld4q_u8(raster_8);
+
+    for (int i = 0; i < 19200; ++i) {
+
+
+        __asm__ volatile("vld1.32 {d0, d1}, [%0]! \n"
+                         "vrev32.8 q0, q0         \n"
+                         "vst1.32 {d0, d1}, [%1]! \n"
+                            :
+                            : "r"(src), "r"(dst)
+                            : "d0", "d1"
+                            );
+
+        r.val[0] = vget_low_u8(rgba.val[0]);
+        r.val[1] = vget_high_u8(rgba.val[0]);
+        g.val[0] = vget_low_u8(rgba.val[1]);
+        g.val[1] = vget_high_u8(rgba.val[1]);
+        b.val[0] = vget_low_u8(rgba.val[2]);
+        b.val[1] = vget_high_u8(rgba.val[2]);
+
+        y_16.val[0] = vmull_u8(r.val[0], scalar_Y.val[0]);
+        y_16.val[1] = vmull_u8(r.val[1], scalar_Y.val[0]);
+        y_16.val[0] = vmlal_u8(y_16.val[0], g.val[0], scalar_Y.val[1]);
+        y_16.val[1] = vmlal_u8(y_16.val[1], g.val[1], scalar_Y.val[1]);
+        y_16.val[0] = vmlal_u8(y_16.val[0], b.val[0], scalar_Y.val[2]);
+        y_16.val[1] = vmlal_u8(y_16.val[1], b.val[1], scalar_Y.val[2]);
+
+
+        Cb_16.val[0] = vdupq_n_u16(32768);
+        Cb_16.val[1] = vdupq_n_u16(32768);
+
+        Cr_16.val[0] = vdupq_n_u16(32768);
+        Cr_16.val[1] = vdupq_n_u16(32768);
+
+        Cb_16.val[0] = vmlsl_u8(Cb_16.val[0], r.val[0], scalar_Cb.val[0]);
+        Cb_16.val[1] = vmlsl_u8(Cb_16.val[1], r.val[1], scalar_Cb.val[0]);
+        Cb_16.val[0] = vmlsl_u8(Cb_16.val[0], g.val[0], scalar_Cb.val[1]);
+        Cb_16.val[1] = vmlsl_u8(Cb_16.val[1], g.val[1], scalar_Cb.val[1]);
+        Cb_16.val[0] = vmlal_u8(Cb_16.val[0], b.val[0], scalar_Cb.val[2]);
+        Cb_16.val[1] = vmlal_u8(Cb_16.val[1], b.val[1], scalar_Cb.val[2]);
+        Cr_16.val[0] = vmlal_u8(Cr_16.val[0], r.val[0], scalar_Cb.val[2]);
+        Cr_16.val[1] = vmlal_u8(Cr_16.val[1], r.val[1], scalar_Cb.val[2]);
+        Cr_16.val[0] = vmlsl_u8(Cr_16.val[0], g.val[0], scalar_Cr.val[0]);
+        Cr_16.val[1] = vmlsl_u8(Cr_16.val[1], g.val[1], scalar_Cr.val[0]);
+        Cr_16.val[0] = vmlsl_u8(Cr_16.val[0], b.val[0], scalar_Cr.val[1]);
+        Cr_16.val[1] = vmlsl_u8(Cr_16.val[1], b.val[1], scalar_Cr.val[1]);
+
+
+        ycbcr_split.val[0] = vaddq_u8(vcombine_u8(vqshrn_n_u16(y_16.val[0], 8), vqshrn_n_u16(y_16.val[1], 8)), offset);
+        ycbcr_split.val[1] = vcombine_u8(vqshrn_n_u16(Cb_16.val[0], 8), vqshrn_n_u16(Cb_16.val[1], 8));
+        ycbcr_split.val[2] = vcombine_u8(vqshrn_n_u16(Cr_16.val[0], 8), vqshrn_n_u16(Cr_16.val[1], 8));
+        vst3q_u8(ycbcr + (48*i), ycbcr_split);
+        raster_8 +=64;
+        rgba = vld4q_u8(raster_8);
+    }
+
+    return ycbcr;
 
 }
 
@@ -402,6 +486,7 @@ uint8* convert_rgb_to_ycbcr_v4(const uint32 *raster){
     return ycbcr;
 
 }
+
 
 void measure(uint8*(convert)(const uint32*), uint32* image, char* tag){
     struct timeval stop, start;
