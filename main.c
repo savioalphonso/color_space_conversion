@@ -178,6 +178,50 @@ uint8* downsample_ycbcr_v1(const uint8* ycbcr){
 }
 
 
+//SIMD approach to the 2 rows at a time technique
+uint8* downsample_ycbcr_simd(const uint8* ycbcr){
+    uint16 image_width = 640;
+    uint16 image_height = 480;
+    uint8 pixel_depth = 3;
+    uint8* downsampled_ycbcr = malloc(image_width * image_height * pixel_depth / 2);
+    uint32 row_size = image_width * 3;
+
+    for (int idx = 0; idx < image_width * image_height * pixel_depth; idx+=48) {
+        // if(start of next row)
+        //      skip the next row since we have already processed its data
+        if(idx != 0 && idx % row_size == 0) {
+            idx+=row_size;
+        }
+
+        //load row_i and row_i+1
+        uint8x16x3_t row_i = vld3q_u8(ycbcr+idx);
+        uint8x16x3_t row_j = vld3q_u8(ycbcr+idx+row_size);
+
+        //interleave even elements of cb and cr
+        uint8x16_t row_i_cb_cr_even = vuzp1q_u8(row_i.val[1], row_i.val[2]);
+        uint8x16_t row_i_cb_cr_odd = vuzp2q_u8(row_i.val[1], row_i.val[2]);
+        uint8x16_t row_j_cb_cr_even = vuzp1q_u8(row_j.val[1], row_j.val[2]);
+        uint8x16_t row_j_cb_cr_odd = vuzp2q_u8(row_j.val[1], row_j.val[2]);
+
+        //avg
+        uint8x16_t row_i_cb_cr_avg = vrhaddq_u8(row_i_cb_cr_even, row_i_cb_cr_odd);
+        uint8x16_t row_j_cb_cr_avg = vrhaddq_u8(row_j_cb_cr_even, row_j_cb_cr_odd);
+        uint8x16_t cb_cr_avg = vrhaddq_u8(row_i_cb_cr_avg, row_j_cb_cr_avg);
+
+        //reinterpret to 16x8_3_t vector array
+        uint16x8x3_t values;
+        values.val[0] = vreinterpretq_u16_u8(row_i.val[0]);
+        values.val[1] = vreinterpretq_u16_u8(row_j.val[0]);
+        values.val[2] = vreinterpretq_u16_u8(cb_cr_avg);
+
+        //store and interleave arrays of 16x8x3_t vector
+        vst3q_u16((uint16*)downsampled_ycbcr, values);
+    }
+
+    return downsampled_ycbcr;
+}
+
+
 uint8 *convert_rgb_to_ycbcr(uint32 *raster) {
 
     /**
@@ -515,14 +559,15 @@ int main(int argc, char* argv[]) {
     }
 
     uint32* rgb_image = read_tiff_image(argv[1]);
-    measureConversion(convert_rgb_to_ycbcr, rgb_image, "Unoptimized");
-    measureConversion(convert_rgb_to_ycbcr_v1, rgb_image, "Fixed-Point Arithmetic");
-    measureConversion(convert_rgb_to_ycbcr_v2, rgb_image, "Fixed-Point Arithmetic with Software Pipelining");
-    measureConversion(convert_rgb_to_ycbcr_v2_5, rgb_image, "Shift Only");
-    measureConversion(convert_rgb_to_ycbcr_v3, rgb_image, "SIMD");
+//    measureConversion(convert_rgb_to_ycbcr, rgb_image, "Unoptimized");
+//    measureConversion(convert_rgb_to_ycbcr_v1, rgb_image, "Fixed-Point Arithmetic");
+//    measureConversion(convert_rgb_to_ycbcr_v2, rgb_image, "Fixed-Point Arithmetic with Software Pipelining");
+//    measureConversion(convert_rgb_to_ycbcr_v2_5, rgb_image, "Shift Only");
+//    measureConversion(convert_rgb_to_ycbcr_v3, rgb_image, "SIMD");
 
-    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr, rgb_image, "Downsample");
-    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v1, rgb_image, "Downsample with Backfilling");
+    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr, rgb_image, "Downsample 2 Rows at a Time");
+    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v1, rgb_image, "Downsample Fill-Backfill");
+    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_simd, rgb_image, "Downsample SIMD");
 
     return 0;
 }
