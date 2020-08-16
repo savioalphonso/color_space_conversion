@@ -272,33 +272,41 @@ uint8* convert_rgb_to_ycbcr_v2(const uint32 *raster){
 
     uint32 num_pixels = 640 * 480;
     register uint16 tempY, tempCb, tempCr;
-    register uint8 r = TIFFGetR(raster[0]);
-    register uint8 g = TIFFGetG(raster[0]);
-    register uint8 b = TIFFGetB(raster[0]);
+    register uint32 tempPixel = raster[0];
+    register uint8 r = TIFFGetR(tempPixel);
+    register uint8 g = TIFFGetG(tempPixel);
+    register uint8 b = TIFFGetB(tempPixel);
 
     tempY = 16 + ((65 * r) + (128 * g) + (25 * b) >> 8);
     tempCb = 128 + ((-37 * r) - (74 * g) + (112 * b) >> 8);
     tempCr = 128 + ((112 * r) - (94 * g) - (18 * b) >> 8);
 
-    uint8* ycbcr = malloc(num_pixels * 3);
+    uint8* ycbcr = malloc(num_pixels*3);
     for (register uint32 pixel = 1; pixel < num_pixels; pixel++) {
 
-        Y(ycbcr, pixel, 3,  0) = tempY;
+
+        Y(ycbcr, pixel, 3, 0) = tempY;
         Cb(ycbcr, pixel, 3, 1) = tempCb;
         Cr(ycbcr, pixel, 3, 2) = tempCr;
 
-        r = TIFFGetR(raster[pixel]);
-        g = TIFFGetG(raster[pixel]);
-        b = TIFFGetB(raster[pixel]);
+
 
         tempY = 16 + (((65 * r) + (128 * g) + (25 * b)) >> 8);
         tempCb = 128 + (((-37 * r) - (74 * g) + (112 * b)) >> 8);
         tempCr = 128 + (((112 * r) - (94 * g) - (18 * b)) >> 8);
+
+
+        tempPixel = raster[pixel];
+        r =  TIFFGetR(tempPixel);
+        g =  TIFFGetG(tempPixel);
+        b =  TIFFGetB(tempPixel);
+
+
     }
 
-    Y(ycbcr, num_pixels, 3,  0) = tempY;
-    Cb(ycbcr, num_pixels, 3, 1) = tempCb;
-    Cr(ycbcr, num_pixels, 3, 2) = tempCr;
+    Y(ycbcr, 0, 3, 1) = tempY;
+    Cb(ycbcr, 0, 3, 1) = tempCb;
+    Cr(ycbcr, 0, 3, 1) = tempCr;
 
     return ycbcr;
 }
@@ -568,15 +576,15 @@ int main(int argc, char* argv[]) {
     }
 
     uint32* rgb_image = read_tiff_image(argv[1]);
-//    measureConversion(convert_rgb_to_ycbcr, rgb_image, "Unoptimized");
-//    measureConversion(convert_rgb_to_ycbcr_v1, rgb_image, "Fixed-Point Arithmetic");
-//    measureConversion(convert_rgb_to_ycbcr_v2, rgb_image, "Fixed-Point Arithmetic with Software Pipelining");
-//    measureConversion(convert_rgb_to_ycbcr_v2_5, rgb_image, "Shift Only");
-//    measureConversion(convert_rgb_to_ycbcr_v3, rgb_image, "SIMD");
+    measureConversion(convert_rgb_to_ycbcr, rgb_image, "Unoptimized");
+    measureConversion(convert_rgb_to_ycbcr_v1, rgb_image, "Fixed-Point Arithmetic");
+    measureConversion(convert_rgb_to_ycbcr_v2, rgb_image, "Fixed-Point Arithmetic with Software Pipelining");
+    measureConversion(convert_rgb_to_ycbcr_v2_5, rgb_image, "Shift Only");
+    measureConversion(convert_rgb_to_ycbcr_v3, rgb_image, "SIMD");
 
-//    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr, rgb_image, "Downsample 2 Rows at a Time");
+    //    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr, rgb_image, "Downsample 2 Rows at a Time");
 //    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v1, rgb_image, "Downsample Fill-Backfill");
-    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_simd, rgb_image, "Downsample SIMD");
+//    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_simd, rgb_image, "Downsample SIMD");
 
     return 0;
 }
