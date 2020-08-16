@@ -129,8 +129,6 @@ uint8* downsample_ycbcr(const uint8* ycbcr){
         downsampled_ycbcr[downsampled_pixel+5] = (uint8)(crSum/4); // avg(cr00,cr01,cr10,cr11)
 
         downsampled_pixel+=6;
-        //printf("[o] Converting RGB to YCbCr: \033[1;36m%0.00f%%\033[0m \b\r", ((float) pixel/ (float) (width * height)) * 100);
-        //DEBUG_PRINT("[+] Converted Pixel %d: [\033[1;37mY: %d \033[1;36mCb: %d \033[1;35mCr: %d\033[0m]\n", pixel, Y(ycbcr, pixel), Cb(ycbcr, pixel), Cr(ycbcr, pixel));
     }
 
     return downsampled_ycbcr;
@@ -183,9 +181,13 @@ uint8* downsample_ycbcr_simd(const uint8* ycbcr){
     uint16 image_width = 640;
     uint16 image_height = 480;
     uint8 pixel_depth = 3;
-    uint8* downsampled_ycbcr = malloc(image_width * image_height * pixel_depth / 2);
+    uint8* downsampled_ycbcr = malloc(image_width * image_height * pixel_depth);
     uint32 row_size = image_width * 3;
+    uint8x16x3_t row_i, row_j;
+    uint8x16_t row_i_cb_cr_even, row_i_cb_cr_odd, row_j_cb_cr_even, row_j_cb_cr_odd, row_i_cb_cr_avg, row_j_cb_cr_avg, cb_cr_avg;
+    uint16x8x3_t values;
 
+    int downsampled_idx = 0;
     for (int idx = 0; idx < image_width * image_height * pixel_depth; idx+=48) {
         // if(start of next row)
         //      skip the next row since we have already processed its data
@@ -193,29 +195,30 @@ uint8* downsample_ycbcr_simd(const uint8* ycbcr){
             idx+=row_size;
         }
 
-        //load row_i and row_i+1
-        uint8x16x3_t row_i = vld3q_u8(ycbcr+idx);
-        uint8x16x3_t row_j = vld3q_u8(ycbcr+idx+row_size);
+        // load row_i and row_i+1
+        row_i = vld3q_u8(ycbcr+idx);
+        row_j = vld3q_u8(ycbcr+idx+row_size);
 
-        //interleave even elements of cb and cr
-        uint8x16_t row_i_cb_cr_even = vuzp1q_u8(row_i.val[1], row_i.val[2]);
-        uint8x16_t row_i_cb_cr_odd = vuzp2q_u8(row_i.val[1], row_i.val[2]);
-        uint8x16_t row_j_cb_cr_even = vuzp1q_u8(row_j.val[1], row_j.val[2]);
-        uint8x16_t row_j_cb_cr_odd = vuzp2q_u8(row_j.val[1], row_j.val[2]);
+        // interleave even elements of cb and cr
+        row_i_cb_cr_even = vuzp1q_u8(row_i.val[1], row_i.val[2]);
+        row_i_cb_cr_odd = vuzp2q_u8(row_i.val[1], row_i.val[2]);
+        row_j_cb_cr_even = vuzp1q_u8(row_j.val[1], row_j.val[2]);
+        row_j_cb_cr_odd = vuzp2q_u8(row_j.val[1], row_j.val[2]);
 
-        //avg
-        uint8x16_t row_i_cb_cr_avg = vrhaddq_u8(row_i_cb_cr_even, row_i_cb_cr_odd);
-        uint8x16_t row_j_cb_cr_avg = vrhaddq_u8(row_j_cb_cr_even, row_j_cb_cr_odd);
-        uint8x16_t cb_cr_avg = vrhaddq_u8(row_i_cb_cr_avg, row_j_cb_cr_avg);
+        // avg
+        row_i_cb_cr_avg = vrhaddq_u8(row_i_cb_cr_even, row_i_cb_cr_odd);
+        row_j_cb_cr_avg = vrhaddq_u8(row_j_cb_cr_even, row_j_cb_cr_odd);
+        cb_cr_avg = vrhaddq_u8(row_i_cb_cr_avg, row_j_cb_cr_avg);
 
-        //reinterpret to 16x8_3_t vector array
-        uint16x8x3_t values;
+        // reinterpret to 16x8_3_t vector array
         values.val[0] = vreinterpretq_u16_u8(row_i.val[0]);
         values.val[1] = vreinterpretq_u16_u8(row_j.val[0]);
         values.val[2] = vreinterpretq_u16_u8(cb_cr_avg);
 
-        //store and interleave arrays of 16x8x3_t vector
-        vst3q_u16((uint16*)downsampled_ycbcr, values);
+        // store and interleave arrays of 16x8x3_t vector
+        vst3q_u16(downsampled_ycbcr + downsampled_idx, values);
+
+        downsampled_idx+=48;
     }
 
     return downsampled_ycbcr;
@@ -565,8 +568,8 @@ int main(int argc, char* argv[]) {
 //    measureConversion(convert_rgb_to_ycbcr_v2_5, rgb_image, "Shift Only");
 //    measureConversion(convert_rgb_to_ycbcr_v3, rgb_image, "SIMD");
 
-    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr, rgb_image, "Downsample 2 Rows at a Time");
-    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v1, rgb_image, "Downsample Fill-Backfill");
+//    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr, rgb_image, "Downsample 2 Rows at a Time");
+//    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v1, rgb_image, "Downsample Fill-Backfill");
     measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_simd, rgb_image, "Downsample SIMD");
 
     return 0;
