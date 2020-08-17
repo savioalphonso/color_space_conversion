@@ -206,18 +206,19 @@ uint8* downsample_ycbcr_v2(const uint8* ycbcr){
     return downsampled_ycbcr;
 }
 
-void fill(uint8* output, int index_2, uint8* input, int index, int* temp_cb, int* temp_cr){
+void fill(uint8* output, int index_2, const uint8* input, int index, uint16* temp_cb, uint16* temp_cr){
     output[index_2] = input[index];
     output[index_2+1] = input[index+3];
-    *temp_cb = (input[index+1] + input[index+4]);
-    *temp_cr = (input[index+2] + input[index+5]);
+    *temp_cb = (input[index+1] + input[index+4]) >> 1;
+    *temp_cr = (input[index+2] + input[index+5]) >> 1;
 }
 
-void backfill(uint8* output, int index_2, uint8* input, int index, int* temp_cb, int* temp_cr){
+void backfill(uint8* output, int index_2, const uint8* input, int index, const uint16* temp_cb, const uint16* temp_cr){
+
     output[index_2+2] = input[index];
     output[index_2+3] = input[index+3];
-    output[index_2+4] = (input[index+1] + input[index+4] + (*temp_cb)) >> 2;
-    output[index_2+5] = (input[index+2] + input[index+5] + (*temp_cr)) >> 2;
+    output[index_2+4] = ((input[index+1] + input[index+4]) >> 1)  + ((*temp_cb) >> 8);
+    output[index_2+5] = ((input[index+2] + input[index+5]) >> 1)  + ((*temp_cr) >> 8);
 }
 
 // Accessing one row at a time and back filling, using look up table to avoid branching
@@ -227,9 +228,9 @@ uint8* downsample_ycbcr_v3(const uint8* ycbcr){
     uint32 row_size = width * 3;
     uint8* downsampled_ycbcr = malloc(width * height * 3 / 2);
     uint8 fill_flag = 0;
-    int temp_cb, temp_cr;
+    uint16 temp_cb, temp_cr;
 
-    void (* fill_function[])(uint8* output, int index_2, uint8* input, int index, int* temp_cb, int* temp_cr) = {fill, backfill};
+    void (* fill_function[])(uint8* output, int index_2, uint8* input, int index, uint16* temp_cb, uint16* temp_cr) = {fill, backfill};
 
     int downsampled_pixel = 0;
     for (int pixel = 0; pixel < width * height * 3; pixel+=6) {
