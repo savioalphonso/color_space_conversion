@@ -164,9 +164,36 @@ uint8* downsample_ycbcr_v1(const uint8* ycbcr){
     return downsampled_ycbcr;
 }
 
+// Simple implementation with bit shifting and bitwise if
+uint8* downsample_ycbcr_v2(const uint8* ycbcr){
+    uint32 width = 640;
+    uint32 height = 480;
+    uint8* downsampled_ycbcr = malloc(width * height * 3 / 2);
+    uint32 row_size = width * 3;
+
+    int j = 0;
+    for (int i = 0; i < (width * height * 3); i+=6) {
+        // if(start of next row)
+        //      skip the next row since we have already processed its data
+        i += ((((1 + i) % row_size) ^ (i+1)) & 1) * row_size;
+
+        // store y00,y01,y10,y11,avg(cb00,cb01,cb10,cb11),avg(cr00,cr01,cr10,cr11)
+        downsampled_ycbcr[j] = ycbcr[i]; //y00
+        downsampled_ycbcr[j+1] = ycbcr[i+3]; //y01
+        downsampled_ycbcr[j+2] = ycbcr[i+row_size]; //y10
+        downsampled_ycbcr[j+3] = ycbcr[i+row_size+3]; //y11
+        downsampled_ycbcr[j+4] = (uint8)((ycbcr[i+1] + ycbcr[i+4] + ycbcr[i+row_size+1] + ycbcr[i+row_size+4]) >> 2); // avg(cb00,cb01,cb10,cb11)
+        downsampled_ycbcr[j+5] = (uint8)((ycbcr[i+2] + ycbcr[i+5] + ycbcr[i+row_size+2] + ycbcr[i+row_size+5]) >> 2); // avg(cr00,cr01,cr10,cr11)
+
+        j+=6;
+    }
+
+    return downsampled_ycbcr;
+}
+
 
 // Accessing one row at a time and back filling, hoping for less cache misses.
-uint8* downsample_ycbcr_v2(const uint8* ycbcr){
+uint8* downsample_ycbcr_v3(const uint8* ycbcr){
     uint32 width = 640;
     uint32 height = 480;
     uint32 row_size = width * 3;
@@ -551,7 +578,8 @@ int main(int argc, char* argv[]) {
 
     measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr, rgb_image, "Downsample");
     measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v1, rgb_image, "Downsample with Bit Shift");
-    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v2, rgb_image, "Downsample with Backfilling");
+    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v2, rgb_image, "Downsample with Bitwise If");
+//    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v2, rgb_image, "Downsample with Backfilling");
 
     return 0;
 }
