@@ -206,6 +206,48 @@ uint8* downsample_ycbcr_v2(const uint8* ycbcr){
     return downsampled_ycbcr;
 }
 
+void fill(uint8* output, int index_2, uint8* input, int index, int* temp_cb, int* temp_cr){
+    output[index_2] = input[index];
+    output[index_2+1] = input[index+3];
+    *temp_cb = (input[index+1] + input[index+4]);
+    *temp_cr = (input[index+2] + input[index+5]);
+}
+
+void backfill(uint8* output, int index_2, uint8* input, int index, int* temp_cb, int* temp_cr){
+    output[index_2+2] = input[index];
+    output[index_2+3] = input[index+3];
+    output[index_2+4] = (input[index+1] + input[index+4] + (*temp_cb)) >> 2;
+    output[index_2+5] = (input[index+2] + input[index+5] + (*temp_cr)) >> 2;
+}
+
+// Accessing one row at a time and back filling, using look up table to avoid branching
+uint8* downsample_ycbcr_v3(const uint8* ycbcr){
+    uint32 width = 640;
+    uint32 height = 480;
+    uint32 row_size = width * 3;
+    uint8* downsampled_ycbcr = malloc(width * height * 3 / 2);
+    uint8 fill_flag = 0;
+    int temp_cb, temp_cr;
+
+    void (* fill_function[])(uint8* output, int index_2, uint8* input, int index, int* temp_cb, int* temp_cr) = {fill, backfill};
+
+    int downsampled_pixel = 0;
+    for (int pixel = 0; pixel < width * height * 3; pixel+=6) {
+        // if(start of next row)
+        //      change fill type
+        if(pixel != 0 && pixel % row_size == 0) {
+            fill_flag = fill_flag ? 1 : 0;
+            downsampled_pixel -= backfill ? row_size : 0;
+        }
+
+        fill_function[fill_flag](downsampled_ycbcr, downsampled_pixel, ycbcr, pixel, &temp_cb, &temp_cr);
+
+        downsampled_pixel+=6;
+    }
+
+    return downsampled_ycbcr;
+}
+
 
 //SIMD approach to the 2 rows at a time technique
 uint8* downsample_ycbcr_simd(const uint8* ycbcr){
@@ -601,15 +643,16 @@ int main(int argc, char* argv[]) {
     }
 
     uint32* rgb_image = read_tiff_image(argv[1]);
-    measureConversion(convert_rgb_to_ycbcr, rgb_image, "Unoptimized");
-    measureConversion(convert_rgb_to_ycbcr_v1, rgb_image, "Fixed-Point Arithmetic");
-    measureConversion(convert_rgb_to_ycbcr_v2, rgb_image, "Fixed-Point Arithmetic with Software Pipelining");
-    measureConversion(convert_rgb_to_ycbcr_v2_5, rgb_image, "Shift Only");
-    measureConversion(convert_rgb_to_ycbcr_v3, rgb_image, "SIMD");
+//    measureConversion(convert_rgb_to_ycbcr, rgb_image, "Unoptimized");
+//    measureConversion(convert_rgb_to_ycbcr_v1, rgb_image, "Fixed-Point Arithmetic");
+//    measureConversion(convert_rgb_to_ycbcr_v2, rgb_image, "Fixed-Point Arithmetic with Software Pipelining");
+//    measureConversion(convert_rgb_to_ycbcr_v2_5, rgb_image, "Shift Only");
+//    measureConversion(convert_rgb_to_ycbcr_v3, rgb_image, "SIMD");
 
-    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr, rgb_image, "Downsample Unoptimized");
-    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v1, rgb_image, "Downsample Naive with Bit Shift");
+    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr, rgb_image, "Downsample Naive Unoptimized");
+    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v1, rgb_image, "Downsample Naive using Bit Shift");
     measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v2, rgb_image, "Downsample Fill-Backfill");
+    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v3, rgb_image, "Downsample Fill-Backfill using Lookup Table");
     measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_simd, rgb_image, "Downsample SIMD");
 
     return 0;
