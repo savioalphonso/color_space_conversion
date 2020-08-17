@@ -129,8 +129,36 @@ uint8* downsample_ycbcr(const uint8* ycbcr){
         downsampled_ycbcr[downsampled_pixel+5] = (uint8)(crSum/4); // avg(cr00,cr01,cr10,cr11)
 
         downsampled_pixel+=6;
-        //printf("[o] Converting RGB to YCbCr: \033[1;36m%0.00f%%\033[0m \b\r", ((float) pixel/ (float) (width * height)) * 100);
-        //DEBUG_PRINT("[+] Converted Pixel %d: [\033[1;37mY: %d \033[1;36mCb: %d \033[1;35mCr: %d\033[0m]\n", pixel, Y(ycbcr, pixel), Cb(ycbcr, pixel), Cr(ycbcr, pixel));
+    }
+
+    return downsampled_ycbcr;
+}
+
+
+// Simple implementation, using bit shifting instead of division
+uint8* downsample_ycbcr_v1(const uint8* ycbcr){
+    uint32 width = 640;
+    uint32 height = 480;
+    uint8* downsampled_ycbcr = malloc(width * height * 3 / 2);
+    uint32 row_size = width * 3;
+
+    int downsampled_pixel = 0;
+    for (int pixel = 0; pixel < (width * height * 3); pixel+=6) {
+        // if(start of next row)
+        //      skip the next row since we have already processed its data
+        if(pixel != 0 && pixel % row_size == 0) {
+            pixel+=row_size;
+        }
+
+        // store y00,y01,y10,y11,avg(cb00,cb01,cb10,cb11),avg(cr00,cr01,cr10,cr11)
+        downsampled_ycbcr[downsampled_pixel] = ycbcr[pixel]; //y00
+        downsampled_ycbcr[downsampled_pixel+1] = ycbcr[pixel+3]; //y01
+        downsampled_ycbcr[downsampled_pixel+2] = ycbcr[pixel+row_size]; //y10
+        downsampled_ycbcr[downsampled_pixel+3] = ycbcr[pixel+row_size+3]; //y11
+        downsampled_ycbcr[downsampled_pixel+4] = (uint8)((ycbcr[pixel+1] + ycbcr[pixel+4] + ycbcr[pixel+row_size+1] + ycbcr[pixel+row_size+4]) >> 2); // avg(cb00,cb01,cb10,cb11)
+        downsampled_ycbcr[downsampled_pixel+5] = (uint8)((ycbcr[pixel+2] + ycbcr[pixel+5] + ycbcr[pixel+row_size+2] + ycbcr[pixel+row_size+5]) >> 2); // avg(cr00,cr01,cr10,cr11)
+
+        downsampled_pixel+=6;
     }
 
     return downsampled_ycbcr;
@@ -138,7 +166,7 @@ uint8* downsample_ycbcr(const uint8* ycbcr){
 
 
 // Accessing one row at a time and back filling, hoping for less cache misses.
-uint8* downsample_ycbcr_v1(const uint8* ycbcr){
+uint8* downsample_ycbcr_v2(const uint8* ycbcr){
     uint32 width = 640;
     uint32 height = 480;
     uint32 row_size = width * 3;
@@ -522,7 +550,8 @@ int main(int argc, char* argv[]) {
     measureConversion(convert_rgb_to_ycbcr_v3, rgb_image, "SIMD");
 
     measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr, rgb_image, "Downsample");
-    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v1, rgb_image, "Downsample with Backfilling");
+    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v1, rgb_image, "Downsample with Bit Shift");
+    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v2, rgb_image, "Downsample with Backfilling");
 
     return 0;
 }

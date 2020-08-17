@@ -1,2 +1,0 @@
-Nice to haves:
-- Fix measureDownsampling to accept an already converted RGB to YCbCr image.
