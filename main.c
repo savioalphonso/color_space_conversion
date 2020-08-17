@@ -172,6 +172,7 @@ uint8* downsample_ycbcr_v2(const uint8* ycbcr){
     uint32 row_size = width * 3;
     uint8* downsampled_ycbcr = malloc(width * height * 3 / 2);
     bool backfill = false;
+    register int temp_cb, temp_cr;
 
     int downsampled_pixel = 0;
     for (int pixel = 0; pixel < width * height * 3; pixel+=6) {
@@ -187,16 +188,16 @@ uint8* downsample_ycbcr_v2(const uint8* ycbcr){
             //      store y00,y01,_,_,sum(cb00,cb01),sum(cr00,cr01)
             downsampled_ycbcr[downsampled_pixel] = ycbcr[pixel];
             downsampled_ycbcr[downsampled_pixel+1] = ycbcr[pixel+3];
-            downsampled_ycbcr[downsampled_pixel+4] = (ycbcr[pixel+1] >> 2) + (ycbcr[pixel+4] >> 2);
-            downsampled_ycbcr[downsampled_pixel+5] = (ycbcr[pixel+2] >> 2) + (ycbcr[pixel+5] >> 2);
+            temp_cb = (ycbcr[pixel+1] + ycbcr[pixel+4]);
+            temp_cb = (ycbcr[pixel+2] + ycbcr[pixel+5]);
         }
         else if (backfill){
             // if(second row to downsample)
             //      store _,_,y10,y11,avg(cb00,cb01,cb10,cb11),avg(cr00,cr01,cr10,cr11)
             downsampled_ycbcr[downsampled_pixel+2] = ycbcr[pixel];
             downsampled_ycbcr[downsampled_pixel+3] = ycbcr[pixel+3];
-            downsampled_ycbcr[downsampled_pixel+4] = (ycbcr[pixel+1] >> 2) + (ycbcr[pixel+4] >> 2) + downsampled_ycbcr[downsampled_pixel+4];
-            downsampled_ycbcr[downsampled_pixel+5] = (ycbcr[pixel+2] >> 2) + (ycbcr[pixel+5] >> 2) + downsampled_ycbcr[downsampled_pixel+5];
+            downsampled_ycbcr[downsampled_pixel+4] = (ycbcr[pixel+1] + ycbcr[pixel+4] + temp_cb) >> 2;
+            downsampled_ycbcr[downsampled_pixel+5] = (ycbcr[pixel+2] + ycbcr[pixel+5] + temp_cr) >> 2;
         }
 
         downsampled_pixel+=6;
