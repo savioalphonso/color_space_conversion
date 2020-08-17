@@ -181,7 +181,7 @@ uint8* downsample_ycbcr_simd(const uint8* ycbcr){
     uint16 image_width = 640;
     uint16 image_height = 480;
     uint8 pixel_depth = 3;
-    uint16* downsampled_ycbcr = (uint16*) calloc(230400,2);
+    uint8* downsampled_ycbcr = (uint8*) malloc(image_width * image_height * pixel_depth / 2);
     uint32 row_size = image_width * 3;
     uint8x16x3_t row_i, row_j;
     uint8x16_t row_i_cb_cr_even, row_i_cb_cr_odd, row_j_cb_cr_even, row_j_cb_cr_odd, row_i_cb_cr_avg, row_j_cb_cr_avg, cb_cr_avg;
@@ -199,17 +199,11 @@ uint8* downsample_ycbcr_simd(const uint8* ycbcr){
         row_i = vld3q_u8(ycbcr+idx);
         row_j = vld3q_u8(ycbcr+idx+row_size);
 
-        row_i_cb_cr_even = vtrn1q_u16(row_i.val[1], row_i.val[2]);
-        row_i_cb_cr_odd = vtrn2q_u16(row_i.val[2], row_i.val[1]);
-        row_i_cb_cr_avg = vrhaddq_u8(row_i_cb_cr_even, row_i_cb_cr_odd);
-
-        row_i_cb_cr_even = vtrn1q_u16(row_i.val[1], row_i.val[2]);
-        row_i_cb_cr_odd = vtrn2q_u16(row_i.val[2], row_i.val[1]);
-        row_i_cb_cr_avg = vrhaddq_u8(row_i_cb_cr_even, row_i_cb_cr_odd);
-
-
-        row_j_cb_cr_even = vtrn1q_u16(row_j.val[1], row_j.val[2]);
-        row_j_cb_cr_odd = vtrn2q_u16(row_j.val[2], row_j.val[1]);
+        // interleve cb/cr
+        row_i_cb_cr_even = vtrn1q_u8(row_i.val[1], row_i.val[2]);
+        row_i_cb_cr_odd = vtrn2q_u8(row_i.val[1], row_i.val[2]);
+        row_j_cb_cr_even = vtrn1q_u8(row_j.val[1], row_j.val[2]);
+        row_j_cb_cr_odd = vtrn2q_u8(row_j.val[1], row_j.val[2]);
 
         // avg
         row_i_cb_cr_avg = vrhaddq_u8(row_i_cb_cr_even, row_i_cb_cr_odd);
@@ -224,7 +218,7 @@ uint8* downsample_ycbcr_simd(const uint8* ycbcr){
         // store and interleave arrays of 16x8x3_t vector
         vst3q_u16((downsampled_ycbcr + downsampled_idx), values);
 
-        downsampled_idx+=24;
+        downsampled_idx+=48;
     }
 
     return (uint8*) downsampled_ycbcr;
@@ -582,9 +576,9 @@ int main(int argc, char* argv[]) {
     measureConversion(convert_rgb_to_ycbcr_v2_5, rgb_image, "Shift Only");
     measureConversion(convert_rgb_to_ycbcr_v3, rgb_image, "SIMD");
 
-    //    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr, rgb_image, "Downsample 2 Rows at a Time");
-//    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v1, rgb_image, "Downsample Fill-Backfill");
-//    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_simd, rgb_image, "Downsample SIMD");
+    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr, rgb_image, "Downsample 2 Rows at a Time");
+    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_v1, rgb_image, "Downsample Fill-Backfill");
+    measureDownsampling(convert_rgb_to_ycbcr_v1, downsample_ycbcr_simd, rgb_image, "Downsample SIMD");
 
     return 0;
 }
