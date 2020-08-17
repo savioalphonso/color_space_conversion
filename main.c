@@ -236,8 +236,8 @@ uint8* downsample_ycbcr_v3(const uint8* ycbcr){
         // if(start of next row)
         //      change fill type
         if(pixel != 0 && pixel % row_size == 0) {
-            fill_flag = fill_flag ? 1 : 0;
-            downsampled_pixel -= backfill ? row_size : 0;
+            fill_flag = fill_flag ? 0 : 1;
+            downsampled_pixel -= fill_flag ? row_size : 0;
         }
 
         fill_function[fill_flag](downsampled_ycbcr, downsampled_pixel, ycbcr, pixel, &temp_cb, &temp_cr);
